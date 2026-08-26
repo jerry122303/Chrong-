@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><title>초롱이 표정 모아보기</title>
+<style>
+ body{margin:0;background:#F7F3E8;font-family:'Malgun Gothic',sans-serif;}
+ .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:10px;}
+ .cell{background:linear-gradient(180deg,#FFFDF6,#EEF9F0);border:3px solid #D9D0BC;border-radius:16px;text-align:center;}
+ .cell h3{margin:6px;font-size:18px;color:#21753A;}
+ .box{height:300px;}
+ .box svg{height:100%;width:auto;display:block;margin:0 auto;}
+</style></head><body>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { ChorongAvatar } from './avatar.js';
+const emos=['neutral','happy','excited','sad','worried','surprised','love','thinking','proud','happy'];
+const grid=document.getElementById('grid');
+const list=[];
+emos.forEach((e,i)=>{
+  const cell=document.createElement('div');cell.className='cell';
+  cell.innerHTML=`<h3>${e}${i===9?' (말하는 중)':''}</h3><div class="box"></div>`;
+  grid.appendChild(cell);
+  const a=new ChorongAvatar(cell.querySelector('.box'));
+  a.destroy(); a.setEmotion(e); list.push({a,talk:i===9});
+});
+// 정지 화면으로 굳히기 위해 수동으로 프레임을 진행
+list.forEach(({a,talk})=>{
+  a.blinkAt=99;
+  if(talk){a.setSpeaking(true);a.setMouth(0.95);}
+  for(let i=0;i<150;i++){a.t+=1/60;a.blinkAt=99;a._update(1/60);}
+});
+</script></body></html>

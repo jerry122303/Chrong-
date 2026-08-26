@@ -1,0 +1,10 @@
+node_modules/
+.env
+*.log
+
+# 이 폴더 안의 다른(무관한) 프로젝트 — 초롱이 배포에 포함하지 않는다
+church-booking/
+
+# Claude Code 도구 내부 파일
+.claude/
+skills-lock.json
