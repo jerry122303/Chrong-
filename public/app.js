@@ -3,7 +3,7 @@
  *  대화(GPT-4o) → 감정 분석 결과로 표정/몸짓 → 목소리 재생과 동시에 립싱크
  * ===================================================================== */
 
-import { ChorongAvatar } from './avatar.js';
+import { Avatar, CHARACTERS, CHARACTER_LIST, DEFAULT_CHARACTER } from './avatar.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -17,9 +17,13 @@ const ui = {
   slow: $('btn-slow'), slowState: $('slow-state'),
   sound: $('btn-sound'), soundState: $('sound-state'),
   clear: $('btn-clear'), suggest: $('suggest'), toast: $('toast'),
+  swap: $('btn-swap'), picker: $('picker'), cancel: $('btn-cancel'),
+  startLabel: $('start-label'), brandName: document.querySelector('.brand-name'),
+  brandMark: document.querySelector('.brand-mark'),
 };
 
-const GREETING = '안녕하세요, 어르신! 저는 초롱이예요. 오늘 하루는 어떻게 보내셨어요?';
+const greetingFor = (id) =>
+  `안녕하세요, 어르신! 저는 ${(CHARACTERS[id] || CHARACTERS[DEFAULT_CHARACTER]).name}입니다. 오늘 하루는 어떻게 보내셨어요?`;
 
 const state = {
   history: [],
@@ -28,7 +32,8 @@ const state = {
   soundOn: true,
   slow: false,
   fontLevel: 2,
-  lastReply: { text: GREETING, emotion: 'happy' },
+  character: DEFAULT_CHARACTER,
+  lastReply: { text: '', emotion: 'happy' },
 };
 
 let avatar = null;
@@ -118,7 +123,7 @@ async function sendMessage(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: state.history }),
+      body: JSON.stringify({ messages: state.history, character: state.character }),
     });
 
     typing.remove();
@@ -192,7 +197,11 @@ async function speak(text, emotion, mode) {
     const res = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, emotion, mode: mode || 'talk', speed: state.slow ? 0.8 : 0.95 }),
+      body: JSON.stringify({
+        text, emotion, mode: mode || 'talk',
+        character: state.character,
+        speed: state.slow ? 0.8 : 0.95,
+      }),
     });
     if (!res.ok) throw new Error('tts');
 
@@ -561,7 +570,7 @@ function bindControls() {
     state.history = [];
     localStorage.removeItem('chorong-history');
     ui.log.innerHTML = '';
-    ui.subtitle.textContent = GREETING;
+    ui.subtitle.textContent = greetingFor(state.character);
     addMessage('sys', '새로 이야기를 시작해요');
     avatar.setEmotion('happy');
     avatar.playGesture('flap');
@@ -598,6 +607,98 @@ function bindControls() {
 }
 
 /* ==================================================================
+ *  말동무 고르기
+ * ================================================================== */
+
+let pickerAvatars = [];   // 카드 안에서 살아 움직이는 작은 아바타들
+let pickerHop = 0;
+let pending = DEFAULT_CHARACTER;   // 고르는 중인 캐릭터 (아직 확정 전)
+
+/** 고른 캐릭터를 화면 곳곳에 반영한다 */
+function applyCharacter(id) {
+  state.character = CHARACTERS[id] ? id : DEFAULT_CHARACTER;
+  localStorage.setItem('chorong-character', state.character);
+
+  const def = CHARACTERS[state.character];
+  avatar.setCharacter(state.character);
+  if (ui.brandName) ui.brandName.textContent = def.name;
+  document.title = def.name + ' - 말동무 친구';
+}
+
+/** 카드 3장을 만들고 각각 안에 작은 아바타를 띄운다 */
+function buildPicker() {
+  ui.picker.innerHTML = '';
+  destroyPickerAvatars();
+
+  for (const id of CHARACTER_LIST) {
+    const def = CHARACTERS[id];
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'pick';
+    card.setAttribute('role', 'radio');
+    card.dataset.char = id;
+    card.innerHTML =
+      '<span class="pick-art"></span>' +
+      '<span class="pick-text">' +
+        '<span class="pick-name"></span>' +
+        '<span class="pick-desc"></span>' +
+      '</span>';
+    card.querySelector('.pick-name').textContent = def.name;
+    card.querySelector('.pick-desc').textContent = def.tagline;
+    ui.picker.appendChild(card);
+
+    const mini = new Avatar(card.querySelector('.pick-art'), id);
+    mini.setEmotion('happy');
+    pickerAvatars.push(mini);
+
+    card.addEventListener('click', () => selectPending(id));
+  }
+
+  // 고른 친구가 이따금 인사하듯 움직인다
+  pickerHop = setInterval(() => {
+    const i = CHARACTER_LIST.indexOf(pending);
+    pickerAvatars[i]?.playGesture('bounce');
+  }, 2600);
+
+  selectPending(pending);
+}
+
+function selectPending(id) {
+  pending = id;
+  for (const card of ui.picker.querySelectorAll('.pick')) {
+    const on = card.dataset.char === id;
+    card.setAttribute('aria-checked', String(on));
+    const i = CHARACTER_LIST.indexOf(card.dataset.char);
+    pickerAvatars[i]?.setEmotion(on ? 'excited' : 'neutral');
+  }
+}
+
+function destroyPickerAvatars() {
+  clearInterval(pickerHop);
+  pickerAvatars.forEach((a) => a.destroy());
+  pickerAvatars = [];
+}
+
+/** 대화 중에 다시 고르고 싶을 때 */
+function openChooser() {
+  stopSpeaking();
+  pending = state.character;
+  ui.splash.hidden = false;
+  ui.splash.classList.remove('hide');
+  ui.cancel.hidden = false;
+  ui.startLabel.textContent = '이 친구로 바꾸기';
+  buildPicker();
+}
+
+function closeChooser() {
+  ui.splash.classList.add('hide');
+  setTimeout(() => {
+    ui.splash.hidden = true;
+    destroyPickerAvatars();
+  }, 480);
+}
+
+/* ==================================================================
  *  시작
  * ================================================================== */
 
@@ -621,18 +722,13 @@ async function checkApiKey() {
 }
 
 function init() {
-  avatar = new ChorongAvatar(ui.avatar);
-  avatar.setEmotion('happy');
+  const savedChar = localStorage.getItem('chorong-character');
+  if (CHARACTERS[savedChar]) state.character = savedChar;
+  pending = state.character;
 
-  // 시작 화면에서도 진짜 초롱이가 인사한다
-  const splashBird = $('splash-bird');
-  let splashAvatar = null;
-  let splashHop = 0;
-  if (splashBird) {
-    splashAvatar = new ChorongAvatar(splashBird);
-    splashAvatar.setEmotion('excited');
-    splashHop = setInterval(() => splashAvatar?.playGesture('bounce'), 2600);
-  }
+  avatar = new Avatar(ui.avatar, state.character);
+  avatar.setEmotion('happy');
+  applyCharacter(state.character);
 
   const savedFont = Number(localStorage.getItem('chorong-font'));
   if (savedFont >= 1 && savedFont <= 3) state.fontLevel = savedFont;
@@ -644,26 +740,38 @@ function init() {
   bindControls();
   loadHistory();
   checkApiKey();
+  buildPicker();
+
+  ui.swap.addEventListener('click', openChooser);
+  ui.cancel.addEventListener('click', closeChooser);
 
   ui.start.addEventListener('click', async () => {
-    ui.splash.classList.add('hide');
-    clearInterval(splashHop);
-    setTimeout(() => { splashAvatar?.destroy(); splashAvatar = null; ui.splash.remove(); }, 520);
+    const changing = !ui.cancel.hidden;      // 대화 중에 친구를 바꾸는 경우
+    const switched = pending !== state.character;
+
+    applyCharacter(pending);
+    closeChooser();
     ensureAudio();
 
-    const isFirst = state.history.length === 0;
-    const text = isFirst ? GREETING : '어르신, 다시 뵈어서 정말 반가워요! 그동안 잘 지내셨어요?';
+    if (changing && !switched) return;       // 같은 친구면 인사를 다시 하지 않는다
+
+    const def = CHARACTERS[state.character];
+    const text = changing
+      ? `안녕하세요, 어르신! 이제부터 제가 말동무가 되어 드릴게요. 저는 ${def.name}입니다.`
+      : (state.history.length === 0
+          ? greetingFor(state.character)
+          : '어르신, 다시 뵈어서 정말 반가워요! 그동안 잘 지내셨어요?');
 
     ui.subtitle.textContent = text;
     addMessage('bot', text);
     state.history.push({ role: 'assistant', content: text });
-    state.lastReply = { text, emotion: 'excited' };
+    state.lastReply = { text, emotion: 'excited', mode: 'talk' };
     saveHistory();
 
     avatar.setEmotion('excited');
     avatar.playGesture('cheer');
     await speak(text, 'excited');
-  }, { once: true });
+  });
 }
 
 init();

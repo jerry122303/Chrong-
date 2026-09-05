@@ -16,13 +16,16 @@
   <!-- ================= 시작 화면 ================= -->
   <div id="splash" class="splash">
     <div class="splash-inner">
-      <div class="splash-bird" id="splash-bird" aria-hidden="true"></div>
-      <h1 class="splash-title">안녕하세요, 저는 <b>초롱이</b>입니다</h1>
-      <p class="splash-desc">어르신과 이야기 나누고 싶어요.<br />아래 버튼을 눌러 주세요.</p>
+      <h1 class="splash-title">말동무를 <b>골라 주세요</b></h1>
+      <p class="splash-desc">마음에 드는 친구를 누르시면 이야기를 시작합니다.</p>
+
+      <div class="picker" id="picker" role="radiogroup" aria-label="말동무 고르기"></div>
+
       <button id="btn-start" class="btn-start">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke="none"/></svg>
-        이야기 시작하기
+        <span id="start-label">이야기 시작하기</span>
       </button>
+      <button id="btn-cancel" class="btn-cancel" type="button" hidden>그대로 두기</button>
       <p class="splash-hint">소리가 나오니 볼륨을 켜 주세요</p>
     </div>
   </div>
@@ -32,15 +35,10 @@
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32">
-          <path d="M11 8.5c-1-2-1.2-4 0-5.5 1.6 1.4 2.3 3.4 2.6 5.2z" fill="#FF6B5C" stroke="none"/>
-          <path d="M15.6 7.6c-.6-2.4-.2-4.4 1.2-5.8 1 1.8.7 4 .3 5.8z" fill="#FFC93C" stroke="none"/>
-          <path d="M19 8.3c1.5-2 3-3.2 4.6-3.8-.3 2.2-1.8 3.9-3.2 4.9z" fill="#FF9A3D" stroke="none"/>
-          <path d="M6 16.5C6 11 10 7.5 16 7.5S26 11 26 16.5v5.8c0 3-1.8 4.7-4.6 4.7h-10.8C7.8 27 6 25.3 6 22.3z" fill="currentColor" stroke="none"/>
-          <ellipse cx="12.4" cy="15.4" rx="4.4" ry="4.9" fill="#FFFFFF" stroke="none"/>
-          <ellipse cx="19.6" cy="15.4" rx="4.4" ry="4.9" fill="#FFFFFF" stroke="none"/>
-          <ellipse cx="12.6" cy="15.9" rx="1.8" ry="2.2" fill="#26312B" stroke="none"/>
-          <ellipse cx="19.4" cy="15.9" rx="1.8" ry="2.2" fill="#26312B" stroke="none"/>
-          <path d="M16 16.6c1.4 0 2.6.9 2.6 2.1 0 1.5-1.3 2.9-2.6 3.4-1.3-.5-2.6-1.9-2.6-3.4 0-1.2 1.2-2.1 2.6-2.1z" fill="#FFC93C" stroke="none"/>
+          <path d="M6 7.5h20a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H14l-6 5v-5H6a3 3 0 0 1-3-3v-10a3 3 0 0 1 3-3z"
+                fill="currentColor" stroke="none"/>
+          <path d="M16 12.4c1.9 0 3.4 1.2 3.4 2.9 0 2.1-1.8 4-3.4 4.7-1.6-.7-3.4-2.6-3.4-4.7 0-1.7 1.5-2.9 3.4-2.9z"
+                fill="#FFFFFF" stroke="none"/>
         </svg>
       </span>
       <span class="brand-name">초롱이</span>
@@ -64,6 +62,13 @@
           <path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M16 9.6a4 4 0 0 1 0 4.8"/><path d="M18.7 7a8 8 0 0 1 0 10"/>
         </svg>
         <span class="ctrl-label">소리<b id="sound-state">켜짐</b></span>
+      </button>
+
+      <button id="btn-swap" class="ctrl" type="button">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 8.5h13l-3-3"/><path d="M20 15.5H7l3 3"/>
+        </svg>
+        <span class="ctrl-label">친구 바꾸기</span>
       </button>
 
       <button id="btn-clear" class="ctrl" type="button">

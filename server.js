@@ -19,6 +19,49 @@ const VOICE_PITCH = Math.min(1.35, Math.max(1, Number(process.env.VOICE_PITCH) |
 const STT_MODEL = process.env.STT_MODEL || 'whisper-1';
 
 /* ------------------------------------------------------------------ *
+ * 캐릭터 — 이름 / 성격 / 목소리
+ * 목소리는 서버에서만 정한다 (브라우저가 아무 목소리나 요청하지 못하도록)
+ * ------------------------------------------------------------------ */
+const CHARACTERS = {
+  chorong: {
+    name: '초롱이',
+    voice: TTS_VOICE,
+    pitch: VOICE_PITCH,
+    who: `당신은 '초롱이'입니다. 어르신들의 말동무가 되어 주는 초록색 앵무새 캐릭터예요.
+- 밝고 다정하며, 어르신을 진심으로 존경하고 좋아합니다.
+- 앵무새답게 어르신의 말을 살짝 되짚어 주며 공감합니다. (예: "손주가 놀러 왔다고요? 정말 반가우셨겠어요!")`,
+    tone: "예닐곱 살 여자아이 목소리를 가진 아기 앵무새 '초롱이'입니다. " +
+          '목소리는 아주 높고 맑고 앳됩니다. 어른 여성의 낮고 차분한 목소리는 절대 내지 마세요. ' +
+          '어린아이가 신이 나서 재잘거리듯, 말끝을 살짝 올리며 통통 튀게 말합니다. ' +
+          '늘 방긋 웃는 표정으로 말하듯 밝은 숨결이 섞여야 합니다. ',
+  },
+  junho: {
+    name: '준호',
+    voice: 'ash',
+    pitch: 1.0,
+    who: `당신은 '준호'입니다. 어르신의 말동무가 되어 드리는 이십 대 청년입니다.
+- 손주처럼 살갑고 씩씩합니다. 어르신을 진심으로 존경하고 잘 챙겨 드립니다.
+- 어르신 말씀을 잘 새겨듣고 맞장구를 시원시원하게 칩니다. (예: "손주가 다녀갔군요! 얼마나 반가우셨어요.")`,
+    tone: "이십 대 청년 남성 '준호'입니다. " +
+          '목소리는 맑고 시원한 청년의 음색입니다. 낮게 깔거나 무겁게 말하지 마세요. ' +
+          '손주가 할머니 할아버지께 살갑게 말씀드리듯 밝고 씩씩하게 말합니다. ',
+  },
+  seoyeon: {
+    name: '서연',
+    voice: 'coral',
+    pitch: 1.04,
+    who: `당신은 '서연'입니다. 어르신의 말동무가 되어 드리는 이십 대 청년입니다.
+- 손녀처럼 상냥하고 다정합니다. 어르신을 진심으로 존경하고 세심하게 살펴 드립니다.
+- 어르신 말씀에 따뜻하게 공감하며 되짚어 드립니다. (예: "손주가 다녀갔군요. 정말 반가우셨겠어요.")`,
+    tone: "이십 대 청년 여성 '서연'입니다. " +
+          '목소리는 맑고 상냥한 젊은 여성의 음색입니다. ' +
+          '손녀가 할머니 할아버지께 도란도란 이야기하듯 부드럽고 따뜻하게 말합니다. ',
+  },
+};
+
+const pickCharacter = (id) => CHARACTERS[id] || CHARACTERS.chorong;
+
+/* ------------------------------------------------------------------ *
  * 접속 비밀번호 (외부에 여는 경우 필수)
  * ACCESS_CODE 를 .env 에 설정하면, 그 암호를 아는 사람만 사이트를 볼 수 있습니다.
  * 설정하지 않으면 예전처럼 누구나 열 수 있습니다 (내 컴퓨터에서만 쓸 때는 이대로 둬도 됩니다).
@@ -49,11 +92,7 @@ const upload = multer({
 /* ------------------------------------------------------------------ *
  * 초롱이 페르소나
  * ------------------------------------------------------------------ */
-const SYSTEM_PROMPT = `당신은 '초롱이'입니다. 어르신들의 말동무가 되어 주는 초록색 앵무새 캐릭터예요.
-
-[성격]
-- 밝고 다정하며, 어르신을 진심으로 존경하고 좋아합니다.
-- 앵무새답게 어르신의 말을 살짝 되짚어 주며 공감합니다. (예: "손주가 놀러 왔다고요? 정말 반가우셨겠어요!")
+const buildSystemPrompt = (charId) => `${pickCharacter(charId).who}
 - 재촉하지 않고, 어르신의 속도에 맞춰 천천히 이야기합니다.
 
 [말투 규칙 — 반드시 지킬 것]
@@ -84,7 +123,7 @@ const SYSTEM_PROMPT = `당신은 '초롱이'입니다. 어르신들의 말동무
 
 [출력 형식 — 반드시 JSON 한 개만 출력]
 {
-  "reply": "초롱이가 할 말",
+  "reply": "당신이 할 말",
   "emotion": "neutral | happy | excited | sad | worried | surprised | love | thinking | proud",
   "gesture": "idle | nod | flap | bounce | tilt | cheer | droop",
   "mode": "talk | story"
@@ -144,6 +183,7 @@ function requireKey(res) {
 app.post('/api/chat', async (req, res) => {
   if (!requireKey(res)) return;
 
+  const charId = String(req.body?.character || 'chorong');
   const history = Array.isArray(req.body?.messages) ? req.body.messages : [];
   // 최근 16턴만 유지 (비용/지연 관리)
   const trimmed = history
@@ -163,7 +203,7 @@ app.post('/api/chat', async (req, res) => {
         temperature: 0.8,
         max_tokens: 900,
         response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...trimmed],
+        messages: [{ role: 'system', content: buildSystemPrompt(charId) }, ...trimmed],
       }),
     });
 
@@ -204,8 +244,14 @@ app.post('/api/chat', async (req, res) => {
 /* ------------------------------------------------------------------ *
  * 음성 합성 (TTS) — 감정에 맞춘 목소리
  * ------------------------------------------------------------------ */
-async function requestTTS({ model, text, speed, emotion, mode }) {
-  const voice = model === 'tts-1' && !TTS1_VOICES.includes(TTS_VOICE) ? 'shimmer' : TTS_VOICE;
+/* tts-1 로 대체될 때, 성별이 바뀌지 않도록 비슷한 목소리로 옮긴다 */
+const TTS1_FALLBACK = { ash: 'onyx', coral: 'shimmer', sage: 'alloy', ballad: 'onyx', verse: 'echo' };
+
+async function requestTTS({ model, text, speed, emotion, mode, character }) {
+  const wanted = pickCharacter(character).voice;
+  const voice = model === 'tts-1' && !TTS1_VOICES.includes(wanted)
+    ? (TTS1_FALLBACK[wanted] || 'shimmer')
+    : wanted;
 
   const body = {
     model,
@@ -223,10 +269,7 @@ async function requestTTS({ model, text, speed, emotion, mode }) {
         : VOICE_STYLE[emotion] || VOICE_STYLE.neutral;
 
     body.instructions =
-      "당신은 예닐곱 살 여자아이 목소리를 가진 아기 앵무새 '초롱이'입니다. " +
-      '목소리는 아주 높고 맑고 앳됩니다. 어른 여성의 낮고 차분한 목소리는 절대 내지 마세요. ' +
-      '어린아이가 신이 나서 재잘거리듯, 말끝을 살짝 올리며 통통 튀게 말합니다. ' +
-      '늘 방긋 웃는 표정으로 말하듯 밝은 숨결이 섞여야 합니다. ' +
+      '당신은 어르신의 말동무인 ' + pickCharacter(character).tone +
       tone +
       ' 다만 어르신이 알아듣기 쉽도록 한 글자씩 또박또박 발음하세요.';
   }
@@ -247,22 +290,24 @@ app.post('/api/tts', async (req, res) => {
   const text = String(req.body?.text || '').slice(0, 2000).trim();
   const emotion = String(req.body?.emotion || 'neutral');
   const mode = String(req.body?.mode || 'talk');
+  const character = String(req.body?.character || 'chorong');
+  const pitch = pickCharacter(character).pitch;
   const base = Number(req.body?.speed) || 0.95;
   const factor = mode === 'story' ? 0.92 : (EMOTION_SPEED[emotion] || 1);
   const wanted = Math.min(1.25, Math.max(0.7, base * factor));
   // 브라우저가 VOICE_PITCH 배로 빠르게 재생하므로, 그만큼 느리게 만들어 둔다.
   // 결과적으로 말 속도는 그대로면서 음높이만 올라간다.
-  const speed = Math.min(4, Math.max(0.25, wanted / VOICE_PITCH));
+  const speed = Math.min(4, Math.max(0.25, wanted / pitch));
 
   if (!text) return res.status(400).json({ error: 'EMPTY', message: '읽을 내용이 없어요.' });
 
   try {
-    let r = await requestTTS({ model: TTS_MODEL, text, speed, emotion, mode });
+    let r = await requestTTS({ model: TTS_MODEL, text, speed, emotion, mode, character });
 
     // 최신 TTS 모델을 못 쓰는 계정이면 tts-1로 자동 대체
     if (!r.ok && TTS_MODEL !== 'tts-1') {
       console.warn('[tts] falling back to tts-1 (status ' + r.status + ')');
-      r = await requestTTS({ model: 'tts-1', text, speed, emotion, mode });
+      r = await requestTTS({ model: 'tts-1', text, speed, emotion, mode, character });
     }
 
     if (!r.ok) {
@@ -274,7 +319,7 @@ app.post('/api/tts', async (req, res) => {
     const buf = Buffer.from(await r.arrayBuffer());
     res.set('Content-Type', 'audio/mpeg');
     res.set('Cache-Control', 'no-store');
-    res.set('X-Voice-Pitch', String(VOICE_PITCH));
+    res.set('X-Voice-Pitch', String(pitch));
     res.send(buf);
   } catch (err) {
     console.error('[tts] failed', err);

@@ -87,17 +87,71 @@ body {
 }
 .splash.hide { opacity: 0; pointer-events: none; transition: opacity .45s ease; }
 
-.splash-inner { max-width: 640px; }
-.splash-bird {
-  width: min(46vw, 260px);
-  height: min(44vh, 300px);
-  margin: 0 auto 10px;
+.splash-inner { max-width: 900px; width: 100%; }
+
+/* --- 말동무 고르기 --- */
+.picker {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 0 30px;
 }
-.splash-bird svg {
-  width: auto; height: 100%;
-  max-width: 100%;
-  display: block; margin: 0 auto;
+.pick {
+  font-family: inherit;
+  background: var(--card);
+  border: 2px solid var(--line-2);
+  border-radius: var(--r-card);
+  padding: 10px 12px 16px;
+  cursor: pointer;
+  width: min(30vw, 210px);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
 }
+.pick:hover { border-color: var(--brand-line); transform: translateY(-2px); }
+.pick[aria-checked="true"] {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft), var(--shadow);
+}
+.pick-art {
+  width: 100%;
+  height: min(26vh, 190px);
+  display: grid; place-items: center;
+}
+.pick-art svg { width: auto; height: 100%; max-width: 100%; display: block; }
+.pick-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.pick-name {
+  font-size: calc(var(--base) * 1.02);
+  font-weight: 700;
+  color: var(--ink);
+}
+.pick-desc {
+  font-size: calc(var(--base) * .74);
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+.pick[aria-checked="true"] .pick-name { color: var(--brand); }
+
+.btn-cancel {
+  display: block;
+  margin: 14px auto 0;
+  font-family: inherit;
+  font-size: calc(var(--base) * .82);
+  font-weight: 500;
+  color: var(--ink-2);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line-2);
+  padding: 2px 2px 3px;
+  cursor: pointer;
+}
+.btn-cancel:hover { color: var(--brand); border-color: var(--brand); }
+.btn-cancel[hidden] { display: none; }
 .splash-title {
   font-size: calc(var(--base) * 1.5);
   font-weight: 700;
@@ -571,6 +625,16 @@ body.has-keybar { grid-template-rows: auto auto 1fr auto; }
   .composer { padding: 10px 14px 14px; }
 
   .avatar { height: 30vh; min-height: 190px; }
+
+  .picker { flex-direction: column; align-items: stretch; gap: 10px; }
+  .pick {
+    width: 100%;
+    flex-direction: row; align-items: center; gap: 14px;
+    padding: 10px 14px;
+    text-align: left;
+  }
+  .pick-art { width: 84px; height: 84px; flex: 0 0 auto; }
+  .pick-text { align-items: flex-start; }
   .input-row { grid-template-columns: minmax(0, 1fr); }
   .mic { justify-content: center; min-height: 56px; }
   .btn-send { padding: 0 20px; min-height: 52px; }
