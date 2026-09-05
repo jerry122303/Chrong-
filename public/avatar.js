@@ -188,7 +188,7 @@ const HUMAN_GEOM = {
   hasArms: false,          // 참고 그림처럼 팔 없는 상반신
   crestPivot: [236, 74], crestScale: 0.3,
   browScale: 0.9,
-  jawPivot: [200, 210], jawTravel: 12, jawRot: 0,
+  jawPivot: [200, 210], jawTravel: 12, jawRot: 0, mouthFade: 0.22,
   mouthOrigin: [200, 210], mouthSX: 0.12, mouthSY: 1,
   heartL: [169, 176], heartR: [231, 176],
   fx: { heartX: 108, heartY: 180, dropX: 100, dropY: 170, thinkX: 312, thinkY: 96, sparkX: 110, sparkY: 84 },
@@ -310,7 +310,9 @@ function humanSVG(P) {
           <g id="ch-mouth-open">
             <path d="M176 208 L224 208 C224 236, 212 246, 200 246
                      C188 246, 176 236, 176 208 Z" fill="${P.mouth}"/>
-            <path d="M178 208 L222 208 L221 217 Q200 221 179 217 Z" fill="#FFFFFF"/>
+            <path d="M184 208 L216 208 L216 212
+                     C215.5 217, 209 219.5, 200 219.5
+                     C191 219.5, 184.5 217, 184 212 Z" fill="#FFF8F4"/>
             <ellipse cx="200" cy="240" rx="11" ry="6" fill="${P.tongue}"/>
           </g>
           <g id="ch-beak-lower">
@@ -745,6 +747,12 @@ export class Avatar {
     const [jx, jy] = G.jawPivot;
     E.beakLower.setAttribute('transform',
       `translate(0 ${(m * G.jawTravel).toFixed(2)}) rotate(${(m * G.jawRot).toFixed(2)} ${jx} ${jy})`);
+    /* 사람 캐릭터는 '다문 입'과 '벌린 입'이 서로 다른 그림이라 겹치면 안 된다.
+       입이 조금이라도 벌어지면 다문 입 선을 걷어낸다.
+       (초롱이는 이 값이 없다 — 아래턱이 실제 부리라 늘 보여야 한다) */
+    if (G.mouthFade) {
+      E.beakLower.setAttribute('opacity', clamp(1 - m / G.mouthFade, 0, 1).toFixed(3));
+    }
     const [mox, moy] = G.mouthOrigin;
     E.mouthOpen.setAttribute('transform',
       `translate(${mox} ${moy}) scale(${(1 + m * G.mouthSX).toFixed(3)} ${Math.max(0.02, m * G.mouthSY).toFixed(3)}) translate(${-mox} ${-moy})`);
