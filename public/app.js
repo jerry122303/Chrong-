@@ -36,6 +36,19 @@ const state = {
   lastReply: { text: '', emotion: 'happy' },
 };
 
+/** 지금 고른 말동무의 이름 */
+const charName = () => (CHARACTERS[state.character] || CHARACTERS[DEFAULT_CHARACTER]).name;
+
+/**
+ * 이름 뒤에 붙는 주격 조사를 받침에 맞춰 고른다.
+ * 준호(받침 없음) → "준호가", 서연(받침 있음) → "서연이", 초롱이 → "초롱이가"
+ */
+function subject(name) {
+  const code = name.charCodeAt(name.length - 1) - 0xAC00;
+  const hasFinal = code >= 0 && code <= 11171 && code % 28 !== 0;
+  return name + (hasFinal ? '이' : '가');
+}
+
 let avatar = null;
 let audioCtx = null;
 let currentSource = null;
@@ -64,7 +77,7 @@ function addMessage(who, text) {
   if (who !== 'sys') {
     const name = document.createElement('b');
     name.className = 'msg-name';
-    name.textContent = who === 'bot' ? '초롱이' : '나';
+    name.textContent = who === 'bot' ? charName() : '나';
     div.appendChild(name);
   }
   div.appendChild(document.createTextNode(text));
@@ -115,7 +128,7 @@ async function sendMessage(text) {
 
   state.busy = true;
   ui.send.disabled = true;
-  setStatus('thinking', '초롱이가 생각하고 있어요');
+  setStatus('thinking', `${subject(charName())} 생각하고 있어요`);
   avatar.setEmotion('thinking');
   const typing = showTyping();
 
@@ -191,7 +204,7 @@ async function speak(text, emotion, mode) {
     return;
   }
 
-  setStatus('speaking', '초롱이가 말하고 있어요');
+  setStatus('speaking', `${subject(charName())} 말하고 있어요`);
 
   try {
     const res = await fetch('/api/tts', {
@@ -524,7 +537,7 @@ function toggleMic() {
   stopSpeaking();
 
   if (state.listening) { stopRecording(); return; }
-  if (state.busy) { toast('초롱이가 대답을 준비하고 있어요. 잠시만요!'); return; }
+  if (state.busy) { toast(`${subject(charName())} 대답을 준비하고 있어요. 잠시만요!`); return; }
 
   startRecording();
 }
@@ -554,7 +567,7 @@ function bindControls() {
     state.slow = !state.slow;
     ui.slow.setAttribute('aria-pressed', String(state.slow));
     ui.slowState.textContent = state.slow ? '켜짐' : '꺼짐';
-    toast(state.slow ? '초롱이가 더 천천히 말할게요' : '보통 빠르기로 말할게요');
+    toast(state.slow ? `${subject(charName())} 더 천천히 말할게요` : '보통 빠르기로 말할게요');
   });
 
   ui.sound.addEventListener('click', () => {

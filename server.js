@@ -212,7 +212,7 @@ app.post('/api/chat', async (req, res) => {
       console.error('[chat] OpenAI error', r.status, detail);
       return res.status(502).json({
         error: 'UPSTREAM',
-        message: '초롱이가 잠시 대답을 못 하고 있어요. 잠시 후 다시 말씀해 주세요.',
+        message: '지금은 대답을 드리기 어려워요. 잠시 후 다시 말씀해 주세요.',
       });
     }
 
