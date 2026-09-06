@@ -117,7 +117,7 @@ const photoUpload = multer({
 /* ------------------------------------------------------------------ *
  * 초롱이 페르소나
  * ------------------------------------------------------------------ */
-const buildSystemPrompt = (charId, turnRules = '') => `${pickCharacter(charId).who}
+const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pickCharacter(charId).who}
 - 재촉하지 않고, 어르신의 속도에 맞춰 천천히 이야기합니다.
 
 [말투 규칙 — 반드시 지킬 것]
@@ -219,7 +219,7 @@ emotion은 지금 하는 말의 감정을 고릅니다.
 - neutral: 그 밖의 담담한 이야기
 
 gesture는 몸짓입니다. nod(끄덕임), flap(날개짓), bounce(폴짝), tilt(고개 갸웃), cheer(만세), droop(축 처짐), idle(가만히).
-${turnRules}`;
+${memoryContext}${turnRules}`;
 
 /* ------------------------------------------------------------------ *
  * 회상 대화 — 질문 예산
@@ -248,6 +248,32 @@ function questionBudget(history) {
     used,
     left: Math.max(0, QUESTION_BUDGET - used),
   };
+}
+
+/**
+ * 지금 보고 있는 사진을 알려 준다 (문서 3번 PRESENT_MEMORY).
+ *
+ * 확인된 항목만 넘긴다. 보호자나 어르신이 확인해 주지 않은 값은
+ * 아무리 그럴듯해도 넣지 않는다. 넣는 순간 모델이 그것을 사실로 말한다.
+ */
+function buildMemoryContext(facts) {
+  if (!facts || Object.keys(facts).length === 0) return '';
+
+  const label = {
+    title: '무슨 일', people: '함께한 사람', place: '장소',
+    when_text: '언제쯤', description: '사진 설명',
+  };
+  const lines = ['', '[지금 함께 보고 있는 사진 — 확인된 내용만 적혀 있습니다]'];
+  for (const [k, v] of Object.entries(facts)) {
+    lines.push(`- ${label[k] || k} : ${Array.isArray(v) ? v.join(', ') : v}`);
+  }
+  lines.push('');
+  lines.push('- 여기 적힌 것만 사실로 말하십시오. 적혀 있지 않은 사람 · 장소 · 날짜 · 사건을');
+  lines.push('  지어내지 마십시오. 사진을 보고 짐작해서 말하지도 마십시오.');
+  lines.push('- 날짜나 사람 이름을 맞히게 하지 마십시오. 기억력 검사가 되어서는 안 됩니다.');
+  lines.push('  ("이게 몇 년도인지 기억나세요?" 같은 물음은 하지 않습니다)');
+  lines.push('- 어르신이 적힌 것과 다르게 말씀하셔도 바로잡지 마십시오. 어르신 말씀을 따릅니다.');
+  return lines.join('\n');
 }
 
 /** 이번 차례에만 적용되는 제한을 문장으로 만들어 프롬프트 끝에 붙인다 */
@@ -379,6 +405,19 @@ app.post('/api/chat', async (req, res) => {
   const charId = String(req.body?.character || 'chorong');
   const sessionSeconds = Math.max(0, Number(req.body?.sessionSeconds) || 0);
   const history = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+  /* 사진 이야기를 나누는 중이면 확인된 사실을 서버가 직접 찾아 넣는다.
+     화면이 보내 주는 값을 그대로 쓰면, 확인되지 않은 내용을 사실인 양
+     프롬프트에 밀어 넣을 수 있다. 그래서 아이디만 받는다. */
+  let memoryContext = '';
+  if (req.body?.memory_id) {
+    try {
+      const memory = await memories.get(String(req.body.memory_id));
+      if (memory) memoryContext = buildMemoryContext(memories.facts(memory));
+    } catch (err) {
+      console.warn('[chat] 사진 정보를 읽지 못했습니다', err);
+    }
+  }
   // 최근 16턴만 유지 (비용/지연 관리)
   const trimmed = history
     .filter((m) => m && typeof m.content === 'string' && ['user', 'assistant'].includes(m.role))
@@ -397,7 +436,11 @@ app.post('/api/chat', async (req, res) => {
     max_tokens: 900,
     response_format: { type: 'json_schema', json_schema: REPLY_SCHEMA },
     messages: [
-      { role: 'system', content: buildSystemPrompt(charId, buildTurnRules(budget, mayAsk, sessionSeconds)) },
+      {
+        role: 'system',
+        content: buildSystemPrompt(
+          charId, buildTurnRules(budget, mayAsk, sessionSeconds), memoryContext),
+      },
       ...trimmed,
     ],
   };

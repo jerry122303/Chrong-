@@ -642,3 +642,87 @@ body.has-keybar { grid-template-rows: auto auto 1fr auto; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* ==================================================================
+ *  회상 대화 — 사진 한 장
+ *  문서 3번: 화면에는 사진 한 장, 아바타, 짧은 자막, 종료 기능만 둔다.
+ *  사진이 나오면 아바타는 자리를 내주고 작아진다 (사진이 이야기의 중심).
+ * ================================================================== */
+.memory {
+  /* basis 를 0 으로 두어야 남는 세로 공간을 전부 가져온다.
+     auto 로 두면 사진의 원래 높이(수천 화소)가 계산에 끼어들어 되레 쪼그라든다. */
+  flex: 1 1 0;
+  margin: 0;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.memory[hidden] { display: none; }
+
+.memory-photo {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.memory-title {
+  flex: 0 0 auto;
+  font-size: calc(var(--base) * .92);
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+}
+.memory-acts { flex: 0 0 auto; display: flex; gap: 8px; }
+.memory-btn {
+  font: inherit;
+  font-size: calc(var(--base) * .78);
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.memory-btn:hover { border-color: var(--brand); color: var(--brand); }
+
+/* 사진을 보는 동안에는 사진이 이야기의 중심이므로 아바타가 자리를 내준다.
+   좁은 화면에서도 같은 크기를 지키려고 아래 미디어 쿼리보다 뒤에 두었다. */
+.stage.with-memory .avatar {
+  flex: 0 0 auto;
+  height: 92px;
+  min-height: 92px;
+}
+
+/* 좁은 화면은 위아래로 쌓인다.
+   여기서는 basis 를 0 으로 두면 안 된다. 무대 높이를 잴 때 사진이 0 으로
+   잡혀 무대가 늘어나지 않고, 아바타와 자막이 사진 위로 겹쳐 버린다.
+   실제 높이를 갖게 해 무대가 그만큼 늘어나게 한다. */
+@media (max-width: 1000px) {
+  .stage.with-memory .memory { flex: 0 0 auto; }
+  .stage.with-memory .memory-photo { flex: 0 0 auto; height: 190px; }
+}
+
+/* 넓은 화면에서는 위아래로 쌓지 않고 사진과 아바타를 나란히 둔다.
+   쌓아 두면 자막과 아바타가 세로를 차지해 정작 사진이 손바닥만 해진다. */
+@media (min-width: 1001px) {
+  .stage.with-memory {
+    display: grid;
+    grid-template-columns: 1.45fr 1fr;
+    grid-template-rows: 1fr auto auto;
+    grid-template-areas:
+      "photo avatar"
+      "bar   bar"
+      "sub   sub";
+    align-items: center;
+  }
+  .stage.with-memory .memory  { grid-area: photo; height: 100%; }
+  .stage.with-memory .avatar  { grid-area: avatar; height: 100%; min-height: 0; }
+  .stage.with-memory .stage-bar { grid-area: bar; }
+  .stage.with-memory .subtitle  { grid-area: sub; }
+}

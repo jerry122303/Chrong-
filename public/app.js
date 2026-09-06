@@ -19,6 +19,10 @@ const ui = {
   clear: $('btn-clear'), suggest: $('suggest'), toast: $('toast'),
   swap: $('btn-swap'), picker: $('picker'), cancel: $('btn-cancel'),
   startLabel: $('start-label'), brandName: document.querySelector('.brand-name'),
+  stage: document.querySelector('.stage'),
+  photo: $('btn-photo'), photoState: $('photo-state'),
+  memory: $('memory'), memoryPhoto: $('memory-photo'), memoryTitle: $('memory-title'),
+  nextPhoto: $('btn-next-photo'), closePhoto: $('btn-close-photo'),
   brandMark: document.querySelector('.brand-mark'),
 };
 
@@ -36,6 +40,9 @@ const state = {
   lastReply: { text: '', emotion: 'happy' },
   // 회상 대화 한 회기는 오 분 정도로 본다. 서버가 이 값을 보고 마무리를 여쭙는다.
   sessionStart: 0,
+  // 지금 함께 보고 있는 사진. 아이디만 서버에 보내고, 사실은 서버가 찾는다.
+  memory: null,
+  seenMemories: [],   // 이번 회기에 이미 본 사진 (같은 사진이 되풀이되지 않게)
   waited: false,        // 이번 차례에 '천천히 생각하셔도 괜찮아요'를 이미 안내했는지
 };
 
@@ -147,6 +154,8 @@ async function sendMessage(text) {
         messages: state.history,
         character: state.character,
         sessionSeconds: Math.round((Date.now() - state.sessionStart) / 1000),
+        // 아이디만 보낸다. 어떤 내용을 말해도 되는지는 서버가 정한다.
+        memory_id: state.memory ? state.memory.memory_id : null,
       }),
     });
 
@@ -608,9 +617,11 @@ function bindControls() {
 
   ui.clear.addEventListener('click', () => {
     stopSpeaking();
+    stopMemoryTalk();
     state.history = [];
     state.sessionStart = 0;
     state.waited = false;
+    state.seenMemories = [];
     localStorage.removeItem('chorong-history');
     ui.log.innerHTML = '';
     ui.subtitle.textContent = greetingFor(state.character);
@@ -648,6 +659,112 @@ function bindControls() {
     if (document.hidden) stopSpeaking();
   });
 }
+
+/* ==================================================================
+ *  회상 대화 — 사진 보며 이야기하기
+ *
+ *  문서의 흐름을 따른다.
+ *  1) 대화 의사 확인 : 사진을 보자고 먼저 여쭙는다. 싫다 하시면 바로 그만둔다.
+ *  2) 사진 한 장 제시 : 여러 장을 늘어놓지 않는다. 지금 볼 것만 보여 드린다.
+ *  3) 개방형 질문 하나 : 정답을 요구하지 않는 물음으로 문만 연다.
+ * ================================================================== */
+
+function showMemory(memory) {
+  state.memory = memory;
+  if (memory && !state.seenMemories.includes(memory.memory_id)) {
+    state.seenMemories.push(memory.memory_id);
+  }
+
+  const on = Boolean(memory);
+  ui.memory.hidden = !on;
+  ui.stage.classList.toggle('with-memory', on);
+  ui.photo.setAttribute('aria-pressed', String(on));
+  ui.photoState.textContent = on ? '켜짐' : '꺼짐';
+
+  if (on) {
+    ui.memoryPhoto.hidden = !memory.photo;
+    if (memory.photo) {
+      ui.memoryPhoto.src = '/api/memories/' + memory.memory_id + '/photo';
+      ui.memoryPhoto.alt = memory.title || '기억 사진';
+    }
+    ui.memoryTitle.textContent = memory.title || '';
+  }
+}
+
+/** 다음에 볼 사진을 서버에서 받아 온다 (선택 순서는 서버가 정한다) */
+async function pickMemory() {
+  const params = new URLSearchParams();
+  if (state.seenMemories.length) params.set('exclude', state.seenMemories.join(','));
+  const r = await fetch('/api/memories/next?' + params.toString());
+  if (!r.ok) return null;
+  const out = await r.json();
+  return out.memory || null;
+}
+
+/**
+ * 사진 이야기를 시작한다.
+ * 문서 4번대로 처음 한 번만 개방형 질문을 던지고, 그 뒤로는 평소 규칙을 따른다.
+ */
+async function startMemoryTalk() {
+  ensureAudio();
+  let memory;
+  try {
+    memory = await pickMemory();
+  } catch {
+    toast('사진을 불러오지 못했어요.');
+    return;
+  }
+
+  if (!memory) {
+    toast('아직 등록된 사진이 없어요.');
+    return;
+  }
+
+  showMemory(memory);
+  if (!state.sessionStart) state.sessionStart = Date.now();
+
+  const opening = memory.title
+    ? `${memory.title} 사진을 함께 볼까요? 이 사진을 보면 어떤 일이 가장 먼저 떠오르세요?`
+    : '사진을 보면서 잠깐 이야기해 볼까요? 이 사진을 보면 어떤 일이 가장 먼저 떠오르세요?';
+
+  ui.subtitle.textContent = opening;
+  addMessage('bot', opening);
+  state.history.push({ role: 'assistant', content: opening });
+  state.lastReply = { text: opening, emotion: 'happy', mode: 'talk' };
+  saveHistory();
+
+  avatar.setEmotion('happy');
+  avatar.playGesture('nod');
+  speak(opening, 'happy', 'talk');
+}
+
+function stopMemoryTalk() {
+  showMemory(null);
+  ui.memoryPhoto.removeAttribute('src');
+}
+
+ui.photo.addEventListener('click', () => {
+  if (state.memory) stopMemoryTalk();
+  else startMemoryTalk();
+});
+
+ui.closePhoto.addEventListener('click', stopMemoryTalk);
+
+ui.nextPhoto.addEventListener('click', async () => {
+  const memory = await pickMemory();
+  if (!memory) { toast('더 볼 사진이 없어요.'); return; }
+  showMemory(memory);
+
+  const line = memory.title
+    ? `이번에는 ${memory.title} 사진이에요. 어떤 기억이 떠오르세요?`
+    : '다른 사진을 볼까요? 어떤 기억이 떠오르세요?';
+  ui.subtitle.textContent = line;
+  addMessage('bot', line);
+  state.history.push({ role: 'assistant', content: line });
+  state.lastReply = { text: line, emotion: 'happy', mode: 'talk' };
+  saveHistory();
+  speak(line, 'happy', 'talk');
+});
 
 /* ==================================================================
  *  말동무 고르기
