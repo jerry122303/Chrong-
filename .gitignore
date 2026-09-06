@@ -8,3 +8,6 @@ church-booking/
 # Claude Code 도구 내부 파일
 .claude/
 skills-lock.json
+
+# 어르신의 사진과 생애 이야기가 담기는 곳 — 절대 커밋하지 않는다
+data/

@@ -3,6 +3,8 @@ import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MemoryStore } from './lib/memory-store.js';
+import { SessionStore } from './lib/session-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,6 +19,20 @@ const TTS_VOICE = process.env.TTS_VOICE || 'nova';
 // 아이 목소리처럼 들리도록 음을 얼마나 올릴지 (1 = 그대로, 1.2 = 많이 높음)
 const VOICE_PITCH = Math.min(1.35, Math.max(1, Number(process.env.VOICE_PITCH) || 1.16));
 const STT_MODEL = process.env.STT_MODEL || 'whisper-1';
+
+/* ------------------------------------------------------------------ *
+ * 회상 대화 저장소 (문서 11번 — MEMORY 와 SESSION 을 갈라 둔다)
+ *
+ * 주의: Render 무료 플랜은 다시 배포하거나 서버가 잠들었다 깨면 디스크가
+ * 초기화된다. 실제 운영에서는 DATA_DIR 을 영구 디스크로 잡거나
+ * lib/jsonstore.js 를 데이터베이스로 갈아 끼워야 한다.
+ * ------------------------------------------------------------------ */
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+// 대화 원문을 남길지. 개인정보 정책에서 정할 일이라 스위치로 뺐다.
+const KEEP_TRANSCRIPT = process.env.KEEP_TRANSCRIPT !== 'false';
+
+const memories = new MemoryStore(DATA_DIR);
+const sessions = new SessionStore(DATA_DIR, { keepTranscript: KEEP_TRANSCRIPT });
 
 /* ------------------------------------------------------------------ *
  * 캐릭터 — 이름 / 성격 / 목소리
@@ -580,8 +596,140 @@ app.post('/api/stt', upload.single('audio'), async (req, res) => {
   }
 });
 
+/* ------------------------------------------------------------------ *
+ * 회상 대화 — MEMORY / SESSION
+ *
+ * 사진 화면은 아직 없다. 다른 팀이 붙일 수 있도록 저장 구조와 규칙만 열어 둔다.
+ * ------------------------------------------------------------------ */
+
+const owner = (req) => String(req.query?.owner || req.body?.owner_id || 'default');
+const fail = (res, code, message) => res.status(code).json({ error: 'FAILED', message });
+
+/** 이 어르신의 기억 목록 */
+app.get('/api/memories', async (req, res) => {
+  try {
+    res.json({ memories: await memories.listFor(owner(req)) });
+  } catch (err) {
+    console.error('[memories] list', err);
+    fail(res, 500, '기억을 불러오지 못했어요.');
+  }
+});
+
+/** 보호자가 사진과 생애정보를 등록한다 */
+app.post('/api/memories', async (req, res) => {
+  try {
+    res.status(201).json({ memory: await memories.create({ ...req.body, owner_id: owner(req) }) });
+  } catch (err) {
+    console.error('[memories] create', err);
+    fail(res, 500, '기억을 저장하지 못했어요.');
+  }
+});
+
+/** 다음에 이야기할 기억을 고른다 (문서 2번의 순서를 따른다) */
+app.get('/api/memories/next', async (req, res) => {
+  try {
+    const exclude = String(req.query?.exclude || '').split(',').filter(Boolean);
+    const picked = await memories.selectMemory(owner(req), {
+      pickedId: req.query?.picked || undefined,
+      excludeIds: exclude,
+    });
+    if (!picked) return res.json({ memory: null, facts: null });
+    // 프롬프트에 넣어도 되는 것만 함께 돌려준다 (문서 3번)
+    res.json({ memory: picked, facts: memories.facts(picked) });
+  } catch (err) {
+    console.error('[memories] next', err);
+    fail(res, 500, '기억을 고르지 못했어요.');
+  }
+});
+
+/** 새로 들은 이야기를 '아직 확인되지 않은 주장'으로 쌓는다 (문서 9번) */
+app.post('/api/memories/:id/claims', async (req, res) => {
+  try {
+    const claim = await memories.addClaim(req.params.id, req.body || {});
+    if (!claim) return fail(res, 404, '그런 기억이 없어요.');
+    res.status(201).json({ claim });
+  } catch (err) {
+    console.error('[memories] claim', err);
+    fail(res, 500, '내용을 남기지 못했어요.');
+  }
+});
+
+/** 사람이 확인해 주면 그때 사실이 된다 */
+app.post('/api/memories/:id/claims/:claimId/verify', async (req, res) => {
+  try {
+    const status = req.body?.status === 'CAREGIVER_VERIFIED' ? 'CAREGIVER_VERIFIED' : 'VERIFIED';
+    const memory = await memories.verifyClaim(req.params.id, req.params.claimId, status);
+    if (!memory) return fail(res, 404, '그런 기억이나 내용이 없어요.');
+    res.json({ memory });
+  } catch (err) {
+    console.error('[memories] verify', err);
+    fail(res, 500, '확인을 저장하지 못했어요.');
+  }
+});
+
+/** 한 항목에 서로 어긋나는 주장이 있는지 (지우지 않고 출처별로 보여 준다) */
+app.get('/api/memories/:id/conflicts', async (req, res) => {
+  const out = await memories.conflicts(req.params.id);
+  if (!out) return fail(res, 404, '그런 기억이 없어요.');
+  res.json({ conflicts: out });
+});
+
+/** 회기를 시작한다 */
+app.post('/api/sessions', async (req, res) => {
+  try {
+    const session = await sessions.start({ ...req.body, owner_id: owner(req) });
+    if (session.memory_id) await memories.markUsed(session.memory_id);
+    res.status(201).json({ session });
+  } catch (err) {
+    console.error('[sessions] start', err);
+    fail(res, 500, '대화를 시작하지 못했어요.');
+  }
+});
+
+/** 한 차례의 말을 남긴다 */
+app.post('/api/sessions/:id/turns', async (req, res) => {
+  try {
+    const session = await sessions.appendTurn(req.params.id, req.body || {});
+    if (!session) return fail(res, 404, '그런 대화가 없어요.');
+    res.json({
+      session: {
+        session_id: session.session_id,
+        follow_up_count: session.follow_up_count,
+        last_response_mode: session.last_response_mode,
+        elapsed_seconds: session.elapsed_seconds,
+      },
+    });
+  } catch (err) {
+    console.error('[sessions] turn', err);
+    fail(res, 500, '대화를 남기지 못했어요.');
+  }
+});
+
+/** 회기를 마친다 */
+app.post('/api/sessions/:id/close', async (req, res) => {
+  try {
+    const session = await sessions.close(req.params.id, {
+      endedBy: req.body?.ended_by,
+      summary: req.body?.summary,
+    });
+    if (!session) return fail(res, 404, '그런 대화가 없어요.');
+    res.json({ session });
+  } catch (err) {
+    console.error('[sessions] close', err);
+    fail(res, 500, '대화를 마치지 못했어요.');
+  }
+});
+
+/** 문서의 초기 평가 지표 */
+app.get('/api/sessions/metrics', async (req, res) => {
+  res.json({ metrics: await sessions.metrics(owner(req)) });
+});
+
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, hasKey: Boolean(OPENAI_API_KEY), chatModel: CHAT_MODEL });
+  res.json({
+    ok: true, hasKey: Boolean(OPENAI_API_KEY), chatModel: CHAT_MODEL,
+    dataDir: DATA_DIR, keepTranscript: KEEP_TRANSCRIPT,
+  });
 });
 
 app.listen(PORT, () => {
