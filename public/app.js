@@ -34,6 +34,9 @@ const state = {
   fontLevel: 2,
   character: DEFAULT_CHARACTER,
   lastReply: { text: '', emotion: 'happy' },
+  // 회상 대화 한 회기는 오 분 정도로 본다. 서버가 이 값을 보고 마무리를 여쭙는다.
+  sessionStart: 0,
+  waited: false,        // 이번 차례에 '천천히 생각하셔도 괜찮아요'를 이미 안내했는지
 };
 
 /** 지금 고른 말동무의 이름 */
@@ -54,6 +57,7 @@ let audioCtx = null;
 let currentSource = null;
 let lipRAF = 0;
 let idleTimer = 0;
+let waitTimer = 0;
 
 /* ==================================================================
  *  기본 도구
@@ -122,6 +126,9 @@ async function sendMessage(text) {
   if (!message || state.busy) return;
 
   stopSpeaking();
+  clearTimeout(waitTimer);
+  state.waited = false;
+  if (!state.sessionStart) state.sessionStart = Date.now();
   ui.input.value = '';
   addMessage('me', message);
   state.history.push({ role: 'user', content: message });
@@ -136,7 +143,11 @@ async function sendMessage(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: state.history, character: state.character }),
+      body: JSON.stringify({
+        messages: state.history,
+        character: state.character,
+        sessionSeconds: Math.round((Date.now() - state.sessionStart) / 1000),
+      }),
     });
 
     typing.remove();
@@ -312,6 +323,23 @@ function scheduleIdle() {
   idleTimer = setTimeout(() => {
     if (!state.busy && !state.listening) avatar.setEmotion('happy');
   }, 6000);
+  scheduleWaitHint();
+}
+
+/**
+ * 기다림 안내.
+ * 회상 대화에서 어르신은 기억을 떠올리는 데 시간이 걸린다. 침묵을 오류로 보고
+ * 재촉하면 회상을 방해하므로, 열다섯 초가 지나면 소리 없이 화면으로만
+ * 한 번 안내한다. (말로 하면 오히려 말을 끊게 된다)
+ */
+function scheduleWaitHint() {
+  clearTimeout(waitTimer);
+  if (state.waited) return;
+  waitTimer = setTimeout(() => {
+    if (state.busy || state.listening || state.waited) return;
+    state.waited = true;
+    setStatus('idle', '천천히 생각하셔도 괜찮아요');
+  }, 15000);
 }
 
 /* ==================================================================
@@ -581,6 +609,8 @@ function bindControls() {
   ui.clear.addEventListener('click', () => {
     stopSpeaking();
     state.history = [];
+    state.sessionStart = 0;
+    state.waited = false;
     localStorage.removeItem('chorong-history');
     ui.log.innerHTML = '';
     ui.subtitle.textContent = greetingFor(state.character);

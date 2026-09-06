@@ -92,7 +92,7 @@ const upload = multer({
 /* ------------------------------------------------------------------ *
  * 초롱이 페르소나
  * ------------------------------------------------------------------ */
-const buildSystemPrompt = (charId) => `${pickCharacter(charId).who}
+const buildSystemPrompt = (charId, turnRules = '') => `${pickCharacter(charId).who}
 - 재촉하지 않고, 어르신의 속도에 맞춰 천천히 이야기합니다.
 
 [말투 규칙 — 반드시 지킬 것]
@@ -100,8 +100,53 @@ const buildSystemPrompt = (charId) => `${pickCharacter(charId).who}
 2. 한 번에 2~3문장, 100자 이내로 짧게 말합니다. 길게 늘어놓지 않습니다.
 3. 쉬운 우리말만 씁니다. 영어 단어, 전문 용어, 줄임말, 이모지는 절대 쓰지 않습니다.
 4. 숫자나 기호 대신 말로 풀어 씁니다. (3개 → 세 개, 10시 → 열 시)
-5. 이야기 끝에는 어르신이 대답하기 쉬운 짧은 질문을 하나 덧붙입니다.
+5. 모든 말을 질문으로 끝내지 않습니다. 질문해도 되는지는 아래 [회상 대화 알고리즘]이 정합니다.
 6. 어르신이 같은 이야기를 반복하셔도 처음 듣는 것처럼 반갑게 반응합니다.
+
+[회상 대화 알고리즘 — 이 서비스에서 가장 중요한 규칙]
+당신의 역할은 묻는 사람이 아니라 들어 드리는 사람입니다.
+목적은 어르신이 스스로 기억을 꺼내 이야기하시도록 돕는 것입니다.
+날짜나 사람 이름을 맞히게 하는 기억력 검사가 되어서는 안 됩니다.
+
+먼저 어르신 말씀이 어떤 상태인지 고르고, 그 상태에 맞는 반응을 하나만 고릅니다.
+위에서부터 차례로 확인해, 처음 해당하는 것 하나만 씁니다.
+
+1. DISTRESS   위험·응급·자해·학대 표현       → SAFETY_FLOW       안전 안내만 하고 회상 질문은 하지 않습니다
+2. CONTINUING 아직 이야기를 이어가시는 중     → BACKCHANNEL       짧게 맞장구만 칩니다. 질문하지 않습니다
+3. EMOTION    감정을 직접 말씀하심            → VALIDATE_EMOTION  감정을 평가하지 말고 그대로 인정합니다
+4. NEW_EVENT  새 사건·사람·장소를 말씀하심     → REFLECT_CONTENT   들은 내용만 한 문장으로 되짚고 기다립니다
+5. 한 이야기가 마무리됨                       → SUMMARIZE         핵심을 한 문장으로 요약합니다
+6. SILENCE    말씀이 멈췄고 더 여쭐 여지가 있음 → FOLLOW_UP         질문 하나. 예산이 남았을 때만 씁니다
+7. 불편함·피로·그만하고 싶다는 표현             → OFFER_CHOICE      계속할지 다른 이야기를 할지 여쭙습니다
+
+[질문 예산]
+- 질문은 대화의 문을 여는 수단일 뿐입니다.
+- 두 번 연속으로 질문하지 않습니다.
+- 질문과 질문 사이에는 되짚기나 공감이나 요약이 반드시 한 번은 들어갑니다.
+- 한 주제에서 회상 질문은 많아야 세 개까지입니다.
+- 어르신이 스스로 이야기를 이어가고 계시면 질문하지 않고 듣기만 합니다.
+- 계속할지 여쭙는 선택 질문은 회상 질문 예산에 넣지 않습니다.
+
+[없는 사실과 감정을 지어내지 않기]
+- 어르신이 직접 말씀하신 내용만 되짚습니다. 듣지 않은 사실을 덧붙이지 않습니다.
+- 어르신이 감정을 말씀하지 않으셨다면 감정을 단정하지 않습니다.
+  "기쁘셨겠어요" 대신 "그런 일이 있으셨군요" 처럼 말합니다.
+- 확실하지 않은 기억을 사실처럼 말하지 않습니다.
+- 치료 효과나 기억력이 좋아진다는 말은 하지 않습니다.
+
+[대화가 흘러가는 모양]
+어르신이 새 이야기를 꺼내심   → 들은 내용만 한 문장으로 되짚고 조용히 기다립니다
+어르신이 이야기를 이어가심     → 짧게 맞장구만 치고 계속 듣습니다
+어르신이 감정을 말씀하심       → 그 감정을 그대로 인정하고 기다립니다
+한 이야기가 마무리됨           → 핵심을 한 문장으로 요약합니다
+말씀이 멈추고 예산이 남음       → 그때 비로소 질문을 하나 합니다
+
+되짚을 때는 어르신이 방금 쓰신 낱말을 그대로 살려 씁니다.
+
+[이렇게 하지 마십시오]
+질문 → 대답 → 질문 → 대답 → 질문
+어르신 말씀을 받아들이는 말 없이 질문만 이어지면
+대화가 아니라 기억력 검사처럼 느껴집니다.
 
 [대화 주제]
 건강, 식사, 날씨, 가족, 옛날 이야기, 취미, 오늘 하루 등 편안한 일상 이야기를 나눕니다.
@@ -124,10 +169,16 @@ const buildSystemPrompt = (charId) => `${pickCharacter(charId).who}
 [출력 형식 — 반드시 JSON 한 개만 출력]
 {
   "reply": "당신이 할 말",
+  "user_state": "NEW_EVENT | EMOTION | CONTINUING | SILENCE | DISTRESS",
+  "response_mode": "BACKCHANNEL | REFLECT_CONTENT | VALIDATE_EMOTION | SUMMARIZE | FOLLOW_UP | OFFER_CHOICE | SAFETY_FLOW",
+  "ask_question": true | false,
   "emotion": "neutral | happy | excited | sad | worried | surprised | love | thinking | proud",
   "gesture": "idle | nod | flap | bounce | tilt | cheer | droop",
   "mode": "talk | story"
 }
+
+user_state 는 방금 어르신 말씀이 어떤 상태인지, response_mode 는 그에 맞춰 고른 반응 하나입니다.
+ask_question 은 이번 답에 질문을 넣었는지 여부입니다. 질문을 넣지 않았으면 반드시 false 입니다.
 
 mode는 평소 대화면 "talk", 옛날 이야기를 들려 드리는 중이면 "story"입니다.
 
@@ -142,7 +193,124 @@ emotion은 지금 하는 말의 감정을 고릅니다.
 - proud: 어르신을 칭찬하고 뿌듯해할 때
 - neutral: 그 밖의 담담한 이야기
 
-gesture는 몸짓입니다. nod(끄덕임), flap(날개짓), bounce(폴짝), tilt(고개 갸웃), cheer(만세), droop(축 처짐), idle(가만히).`;
+gesture는 몸짓입니다. nod(끄덕임), flap(날개짓), bounce(폴짝), tilt(고개 갸웃), cheer(만세), droop(축 처짐), idle(가만히).
+${turnRules}`;
+
+/* ------------------------------------------------------------------ *
+ * 회상 대화 — 질문 예산
+ *
+ * 프롬프트로만 부탁하면 모델이 결국 질문을 덧붙인다.
+ * 그래서 지난 이력에서 질문을 몇 번 했는지 세어 이번 차례에 질문해도 되는지를
+ * 코드가 정하고, 답이 돌아온 뒤에도 한 번 더 검사한다.
+ * ------------------------------------------------------------------ */
+
+/** 한 주제로 볼 최근 아바타 발화 수 */
+const TOPIC_WINDOW = 6;
+/** 한 주제에서 허용하는 회상 질문 수 (문서 기준 2~3개) */
+const QUESTION_BUDGET = 3;
+/** 한 회상 세션 길이 (문서 기준 약 5분) */
+const SESSION_SECONDS = 5 * 60;
+
+const hasQuestion = (t) => /[?？]/.test(String(t));
+
+/** 최근 이력에서 질문 예산이 얼마나 남았는지 센다 */
+function questionBudget(history) {
+  const said = history.filter((m) => m.role === 'assistant');
+  const last = said[said.length - 1];
+  const used = said.slice(-TOPIC_WINDOW).filter((m) => hasQuestion(m.content)).length;
+  return {
+    lastWasQuestion: last ? hasQuestion(last.content) : false,
+    used,
+    left: Math.max(0, QUESTION_BUDGET - used),
+  };
+}
+
+/** 이번 차례에만 적용되는 제한을 문장으로 만들어 프롬프트 끝에 붙인다 */
+function buildTurnRules(budget, mayAsk, sessionSeconds) {
+  const lines = ['', '[이번 차례의 제한 — 다른 어떤 규칙보다 우선합니다]'];
+
+  lines.push(budget.lastWasQuestion
+    ? '- 직전 차례에 이미 질문을 했습니다.'
+    : '- 직전 차례에는 질문하지 않았습니다.');
+  lines.push(`- 이 주제에서 지금까지 질문을 ${budget.used}번 했습니다. (최대 ${QUESTION_BUDGET}번)`);
+
+  if (mayAsk) {
+    lines.push('- 이번 차례에는 질문을 하나까지 해도 됩니다. 다만 어르신이 아직 이야기를 이어가고 계시면 질문하지 말고 들어 드리십시오.');
+  } else {
+    lines.push('- 이번 차례에는 절대 질문하지 마십시오. 물음표를 쓰지 마십시오.');
+    lines.push('- 어르신 말씀을 되짚거나, 감정을 인정하거나, 짧게 요약한 뒤 조용히 기다리십시오.');
+    lines.push('- ask_question 은 false 로 하십시오.');
+  }
+
+  if (sessionSeconds >= SESSION_SECONDS) {
+    lines.push('- 이야기를 나눈 지 오 분이 넘었습니다. 이번 차례에는 다른 말 대신, 계속 이야기할지 · 다른 이야기를 할지 · 이만 쉴지 골라 주십사 여쭈십시오.');
+    lines.push('- 이때 response_mode 는 OFFER_CHOICE 로 하고, 이 선택 질문은 질문 예산에 넣지 않습니다.');
+  }
+
+  return lines.join('\n');
+}
+
+/** 문장 단위로 자른다 */
+const SENTENCES = /[^.!?。！？\n]+[.!?。！？]*\n?/g;
+
+/**
+ * 질문을 예산에 맞게 걷어낸다.
+ * allowOne 이면 마지막 질문 하나만 남기고, 아니면 질문 문장을 모두 뺀다.
+ * 다 걷어내면 남는 말이 없으므로, 그때는 원문을 그대로 두고 호출한 쪽이 기록하게 한다.
+ */
+function limitQuestions(text, allowOne) {
+  const parts = String(text).match(SENTENCES);
+  if (!parts) return text;
+
+  const qAt = [];
+  parts.forEach((s, i) => { if (hasQuestion(s)) qAt.push(i); });
+  if (qAt.length === 0) return text;
+  if (allowOne && qAt.length === 1) return text;
+
+  const keep = allowOne ? qAt[qAt.length - 1] : -1;
+  const out = parts.filter((_, i) => !qAt.includes(i) || i === keep).join('').trim();
+  return out || text;
+}
+
+/* ------------------------------------------------------------------ *
+ * 응답 스키마
+ *
+ * json_object 만 지정하면 모델이 이따금 {} 를 그대로 돌려준다 (열 번에 두 번쯤).
+ * 필드를 required 로 못박아 두면 빈 응답 자체가 나오지 않고,
+ * emotion 과 gesture 도 아바타가 아는 값만 들어온다.
+ * ------------------------------------------------------------------ */
+const REPLY_SCHEMA = {
+  name: 'malbot_reply',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reply', 'user_state', 'response_mode', 'ask_question', 'emotion', 'gesture', 'mode'],
+    properties: {
+      reply: { type: 'string', description: '어르신께 드릴 말. 절대 비워 두지 않는다.' },
+      user_state: {
+        type: 'string',
+        enum: ['NEW_EVENT', 'EMOTION', 'CONTINUING', 'SILENCE', 'DISTRESS'],
+      },
+      response_mode: {
+        type: 'string',
+        enum: ['BACKCHANNEL', 'REFLECT_CONTENT', 'VALIDATE_EMOTION',
+               'SUMMARIZE', 'FOLLOW_UP', 'OFFER_CHOICE', 'SAFETY_FLOW'],
+      },
+      ask_question: { type: 'boolean' },
+      emotion: {
+        type: 'string',
+        enum: ['neutral', 'happy', 'excited', 'sad', 'worried',
+               'surprised', 'love', 'thinking', 'proud'],
+      },
+      gesture: {
+        type: 'string',
+        enum: ['idle', 'nod', 'flap', 'bounce', 'tilt', 'cheer', 'droop'],
+      },
+      mode: { type: 'string', enum: ['talk', 'story'] },
+    },
+  },
+};
 
 const VOICE_STYLE = {
   neutral:   '차분하지만 밝은 톤으로, 또박또박 다정하게 말하세요.',
@@ -184,6 +352,7 @@ app.post('/api/chat', async (req, res) => {
   if (!requireKey(res)) return;
 
   const charId = String(req.body?.character || 'chorong');
+  const sessionSeconds = Math.max(0, Number(req.body?.sessionSeconds) || 0);
   const history = Array.isArray(req.body?.messages) ? req.body.messages : [];
   // 최근 16턴만 유지 (비용/지연 관리)
   const trimmed = history
@@ -191,46 +360,95 @@ app.post('/api/chat', async (req, res) => {
     .slice(-16)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
 
-  try {
-    const r = await fetch(`${OPENAI_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: CHAT_MODEL,
-        temperature: 0.8,
-        max_tokens: 900,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: buildSystemPrompt(charId) }, ...trimmed],
-      }),
-    });
+  const budget = questionBudget(trimmed);
+  /* 회기가 오 분을 넘으면 마무리를 여쭈어야 하므로, 회상 질문 예산과 무관하게 물을 수 있다
+     (문서: 종료 확인은 회상 질문 예산과 별도로 계산한다) */
+  const closing = sessionSeconds >= SESSION_SECONDS;
+  const mayAsk = closing || (budget.left > 0 && !budget.lastWasQuestion);
 
-    if (!r.ok) {
-      const detail = await r.text();
-      console.error('[chat] OpenAI error', r.status, detail);
+  const payload = {
+    model: CHAT_MODEL,
+    temperature: 0.8,
+    max_tokens: 900,
+    response_format: { type: 'json_schema', json_schema: REPLY_SCHEMA },
+    messages: [
+      { role: 'system', content: buildSystemPrompt(charId, buildTurnRules(budget, mayAsk, sessionSeconds)) },
+      ...trimmed,
+    ],
+  };
+
+  try {
+    let parsed = null;
+    let upstreamError = null;
+
+    /* 모델이 이따금 빈 JSON 을 돌려준다.
+       그때마다 "다시 말씀해 주시겠어요?" 로 되물으면 어르신 이야기를 끊고
+       질문 예산까지 어기게 되므로, 한 번 더 물어본다. */
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const r = await fetch(`${OPENAI_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!r.ok) {
+        upstreamError = `${r.status} ${await r.text()}`;
+        break;
+      }
+
+      const data = await r.json();
+      const raw = data.choices?.[0]?.message?.content ?? '{}';
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { reply: raw };
+      }
+      if (String(parsed.reply || '').trim()) break;
+
+      console.warn('[chat] 빈 응답이 와서 한 번 더 물어봅니다.');
+      parsed = null;
+    }
+
+    if (upstreamError) {
+      console.error('[chat] OpenAI error', upstreamError);
       return res.status(502).json({
         error: 'UPSTREAM',
         message: '지금은 대답을 드리기 어려워요. 잠시 후 다시 말씀해 주세요.',
       });
     }
+    parsed = parsed || {};
 
-    const data = await r.json();
-    const raw = data.choices?.[0]?.message?.content ?? '{}';
+    const mode = parsed.mode === 'story' ? 'story' : 'talk';
+    /* 두 번 다 비면 되묻지 않고 짧게 맞장구만 친다 (BACKCHANNEL 로 예산을 지킨다) */
+    let reply = String(parsed.reply || '').trim() || '네, 그러셨군요.';
 
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = { reply: raw, emotion: 'neutral', gesture: 'idle', mode: 'talk' };
+    /* 옛날 이야기는 예외다 (이야기 끝에만 감상을 하나 여쭙는다).
+       그 밖에는 질문 예산을 코드로 한 번 더 지킨다. */
+    /* 선택 제공과 안전 안내의 물음은 회상 질문이 아니므로 예산에서 빼지 않는다.
+       여기서 걷어내면 어르신이 대화를 그만둘 길이 막힌다. */
+    const exempt = parsed.response_mode === 'OFFER_CHOICE'
+                || parsed.response_mode === 'SAFETY_FLOW';
+
+    if (mode !== 'story' && !exempt) {
+      const limited = limitQuestions(reply, mayAsk);
+      if (limited !== reply) {
+        console.warn('[chat] 질문 예산 위반을 걷어냈습니다.',
+          { mayAsk, used: budget.used, lastWasQuestion: budget.lastWasQuestion });
+        reply = limited;
+      }
     }
 
     res.json({
-      reply: String(parsed.reply || '죄송해요, 다시 한번 말씀해 주시겠어요?').trim(),
+      reply,
       emotion: String(parsed.emotion || 'neutral'),
       gesture: String(parsed.gesture || 'idle'),
-      mode: parsed.mode === 'story' ? 'story' : 'talk',
+      mode,
+      userState: String(parsed.user_state || ''),
+      responseMode: String(parsed.response_mode || ''),
+      askQuestion: hasQuestion(reply),
     });
   } catch (err) {
     console.error('[chat] failed', err);
