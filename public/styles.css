@@ -130,11 +130,6 @@ body {
   font-weight: 700;
   color: var(--ink);
 }
-.pick-desc {
-  font-size: calc(var(--base) * .74);
-  color: var(--ink-3);
-  line-height: 1.4;
-}
 .pick[aria-checked="true"] .pick-name { color: var(--brand); }
 
 .btn-cancel {

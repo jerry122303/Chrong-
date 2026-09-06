@@ -405,21 +405,18 @@ export const CHARACTERS = {
   chorong: {
     id: 'chorong',
     name: '초롱이',
-    tagline: '다정한 앵무새 친구',
     svg: BIRD_SVG,
     geom: BIRD_GEOM,
   },
   junho: {
     id: 'junho',
     name: '준호',
-    tagline: '씩씩한 손주 같은 청년',
     svg: humanSVG(JUNHO),
     geom: { ...HUMAN_GEOM, thinkStroke: JUNHO.hair },
   },
   seoyeon: {
     id: 'seoyeon',
     name: '서연',
-    tagline: '상냥한 손녀 같은 청년',
     svg: humanSVG(SEOYEON),
     geom: { ...HUMAN_GEOM, thinkStroke: SEOYEON.hair },
   },

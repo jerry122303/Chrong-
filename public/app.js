@@ -654,10 +654,8 @@ function buildPicker() {
       '<span class="pick-art"></span>' +
       '<span class="pick-text">' +
         '<span class="pick-name"></span>' +
-        '<span class="pick-desc"></span>' +
       '</span>';
     card.querySelector('.pick-name').textContent = def.name;
-    card.querySelector('.pick-desc').textContent = def.tagline;
     ui.picker.appendChild(card);
 
     const mini = new Avatar(card.querySelector('.pick-art'), id);
