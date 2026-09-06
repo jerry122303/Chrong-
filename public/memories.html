@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기억 사진 등록 — 말동무 친구</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .wrap { max-width: 760px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: calc(var(--base) * 1.5); color: var(--brand); margin: 8px 0 4px; }
+  .lead { color: var(--ink-2); margin: 0 0 24px; line-height: 1.6; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 18px; }
+  .card h2 { font-size: calc(var(--base) * 1.1); margin: 0 0 14px; }
+  label { display: block; margin-bottom: 12px; }
+  label span { display: block; font-size: calc(var(--base) * .86); color: var(--ink-2); margin-bottom: 5px; }
+  input[type=text], textarea {
+    width: 100%; box-sizing: border-box; font: inherit; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink);
+  }
+  textarea { min-height: 66px; resize: vertical; }
+  .hint { font-size: calc(var(--base) * .8); color: var(--ink-3); margin-top: 4px; }
+  .drop {
+    border: 2px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center;
+    color: var(--ink-2); cursor: pointer; background: var(--bg-2);
+  }
+  .drop:hover, .drop.over { border-color: var(--brand); color: var(--brand); }
+  .drop input { display: none; }
+  .preview { margin-top: 12px; text-align: center; }
+  .preview img { max-width: 100%; max-height: 260px; border-radius: 10px; border: 1px solid var(--line); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .msg { margin-top: 12px; padding: 10px 12px; border-radius: 9px; font-size: calc(var(--base) * .9); }
+  .msg:empty { display: none; }
+  .msg.ok { background: #E8F3EC; color: #1F5637; }
+  .msg.bad { background: #FBEAEA; color: #8C2F2F; }
+  .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .item { border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: #fff; }
+  .item img { width: 100%; height: 120px; object-fit: cover; display: block; background: var(--bg-2); }
+  .item .no-photo { height: 120px; display: grid; place-items: center; color: var(--ink-3); background: var(--bg-2); font-size: calc(var(--base) * .82); }
+  .item .body { padding: 9px 10px; }
+  .item .t { font-weight: 700; font-size: calc(var(--base) * .92); }
+  .item .s { font-size: calc(var(--base) * .78); color: var(--ink-2); margin-top: 3px; }
+  .tag { display: inline-block; font-size: calc(var(--base) * .74); padding: 1px 7px; border-radius: 20px; margin-top: 5px; }
+  .tag.v { background: #E8F3EC; color: #1F5637; }
+  .tag.u { background: #FBF1E3; color: #8A5A1E; }
+  .back { display: inline-block; margin-bottom: 10px; color: var(--ink-2); }
+  .save {
+    font: inherit; font-weight: 700; color: #fff; background: var(--brand);
+    border: 0; border-radius: 10px; padding: 11px 22px; cursor: pointer;
+  }
+  .save:hover { background: var(--brand-2); }
+  .save:disabled { opacity: .5; cursor: not-allowed; }
+</style>
+</head>
+<body class="fs-2">
+<div class="wrap">
+  <a class="back" href="/">← 대화 화면으로</a>
+  <h1>기억 사진 등록</h1>
+  <p class="lead">
+    어르신과 회상 대화를 나눌 사진을 등록합니다.<br>
+    <strong>보호자께서 확인하신 내용만</strong> 대화에 쓰입니다.
+  </p>
+
+  <form class="card" id="form">
+    <h2>새 기억 추가</h2>
+
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="image/jpeg,image/png,image/gif,image/webp">
+      <div id="dropText">사진을 고르거나 여기로 끌어다 놓으세요</div>
+    </label>
+    <div class="preview" id="preview" hidden><img id="previewImg" alt="고른 사진"></div>
+    <div class="hint">사진 없이 이야기 주제만 등록해도 됩니다.</div>
+
+    <div style="height:14px"></div>
+
+    <label><span>제목 *</span>
+      <input type="text" id="title" required maxlength="80" placeholder="예: 딸의 결혼식">
+    </label>
+    <label><span>함께한 사람</span>
+      <input type="text" id="people" maxlength="200" placeholder="예: 딸, 사위">
+      <div class="hint">쉼표로 구분해 주세요.</div>
+    </label>
+    <label><span>장소</span>
+      <input type="text" id="place" maxlength="80" placeholder="예: 서울">
+    </label>
+    <label><span>언제쯤</span>
+      <input type="text" id="when" maxlength="80" placeholder="예: 스무 해쯤 전">
+      <div class="hint">정확한 날짜가 아니어도 됩니다. 어르신께 날짜를 여쭙지 않습니다.</div>
+    </label>
+    <label><span>설명</span>
+      <textarea id="desc" maxlength="300" placeholder="예: 결혼식이 끝나고 다 같이 찍은 사진"></textarea>
+    </label>
+
+    <div class="row">
+      <button class="save" type="submit" id="save">등록하기</button>
+      <span class="hint">등록한 내용은 <strong>보호자 확인</strong> 상태로 저장됩니다.</span>
+    </div>
+    <div class="msg" id="msg"></div>
+  </form>
+
+  <div class="card">
+    <h2>등록된 기억 <span id="count" class="hint"></span></h2>
+    <div class="list" id="list"></div>
+  </div>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const OWNER = new URLSearchParams(location.search).get('owner') || 'default';
+
+let picked = null;   // 줄여 놓은 사진
+
+const esc = (s) => String(s == null ? '' : s).replace(
+  /[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+
+/**
+ * 휴대폰 사진은 네 천 화소가 넘어 그대로 올리면 느리다.
+ * 화면에 보일 만한 크기(긴 변 1600)까지 줄여서 보낸다.
+ * 줄인 쪽이 더 크면 원본을 그대로 쓴다 (작은 png 등).
+ */
+async function shrink(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const max = 1600;
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    if (bitmap.close) bitmap.close();
+
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.86));
+    return blob && blob.size < file.size ? blob : file;
+  } catch {
+    return file;   // 못 줄이면 원본을 보낸다. 서버가 크기를 다시 본다.
+  }
+}
+
+function say(text, kind) {
+  $('msg').className = 'msg ' + (kind || '');
+  $('msg').textContent = text || '';
+}
+
+async function choose(file) {
+  if (!file) return;
+  if (!/^image\//.test(file.type)) {
+    say('사진 파일만 올릴 수 있어요.', 'bad');
+    return;
+  }
+  say('');
+  picked = await shrink(file);
+  $('previewImg').src = URL.createObjectURL(picked);
+  $('preview').hidden = false;
+  $('dropText').textContent = file.name + ' — 바꾸려면 다시 누르세요';
+}
+
+$('file').addEventListener('change', (e) => choose(e.target.files[0]));
+
+const drop = $('drop');
+['dragenter', 'dragover'].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => choose(e.dataTransfer.files[0]));
+
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const title = $('title').value.trim();
+  if (!title) { say('제목을 적어 주세요.', 'bad'); return; }
+
+  $('save').disabled = true;
+  say('등록하는 중이에요…', 'ok');
+
+  try {
+    const people = $('people').value.split(',').map((s) => s.trim()).filter(Boolean);
+    const place = $('place').value.trim();
+    const when_text = $('when').value.trim();
+    const description = $('desc').value.trim();
+
+    // 보호자가 직접 적은 항목만 '확인됨'으로 표시한다.
+    // 빈 칸을 확인된 것으로 넣으면 대화에서 빈 값을 사실인 양 쓰게 된다.
+    const verified_fields = ['title'];
+    if (people.length) verified_fields.push('people');
+    if (place) verified_fields.push('place');
+    if (when_text) verified_fields.push('when_text');
+    if (description) verified_fields.push('description');
+
+    const r = await fetch('/api/memories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        owner_id: OWNER, title, people, place, when_text, description,
+        verification_status: 'CAREGIVER_VERIFIED',
+        verified_fields,
+      }),
+    });
+    const created = await r.json();
+    if (!r.ok) throw new Error(created.message || '등록하지 못했어요.');
+
+    if (picked) {
+      const fd = new FormData();
+      fd.append('photo', picked, 'photo.jpg');
+      const pr = await fetch('/api/memories/' + created.memory.memory_id + '/photo', {
+        method: 'POST', body: fd,
+      });
+      if (!pr.ok) {
+        const out = await pr.json().catch(() => ({}));
+        throw new Error(out.message || '사진을 올리지 못했어요.');
+      }
+    }
+
+    $('form').reset();
+    picked = null;
+    $('preview').hidden = true;
+    $('dropText').textContent = '사진을 고르거나 여기로 끌어다 놓으세요';
+    say('등록했어요.', 'ok');
+    load();
+  } catch (err) {
+    say(err.message, 'bad');
+  } finally {
+    $('save').disabled = false;
+  }
+});
+
+async function load() {
+  const r = await fetch('/api/memories?owner=' + encodeURIComponent(OWNER));
+  const out = await r.json();
+  const memories = out.memories || [];
+  $('count').textContent = memories.length ? '(' + memories.length + '건)' : '';
+
+  $('list').innerHTML = memories.map((m) => {
+    const ok = m.verification_status !== 'UNVERIFIED';
+    const art = m.photo
+      ? '<img src="/api/memories/' + m.memory_id + '/photo" alt="' + esc(m.title) + '">'
+      : '<div class="no-photo">사진 없음</div>';
+    const sub = esc([m.place, m.when_text].filter(Boolean).join(' · '));
+    return '<div class="item">' + art + '<div class="body">'
+      + '<div class="t">' + (esc(m.title) || '(제목 없음)') + '</div>'
+      + '<div class="s">' + sub + '</div>'
+      + '<span class="tag ' + (ok ? 'v' : 'u') + '">' + (ok ? '확인됨' : '확인 전') + '</span>'
+      + '</div></div>';
+  }).join('') || '<div class="hint">아직 등록된 기억이 없습니다.</div>';
+}
+
+load();
+</script>
+</body>
+</html>

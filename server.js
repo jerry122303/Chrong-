@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MemoryStore } from './lib/memory-store.js';
 import { SessionStore } from './lib/session-store.js';
+import { PhotoStore } from './lib/photo-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,12 +28,13 @@ const STT_MODEL = process.env.STT_MODEL || 'whisper-1';
  * 초기화된다. 실제 운영에서는 DATA_DIR 을 영구 디스크로 잡거나
  * lib/jsonstore.js 를 데이터베이스로 갈아 끼워야 한다.
  * ------------------------------------------------------------------ */
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 // 대화 원문을 남길지. 개인정보 정책에서 정할 일이라 스위치로 뺐다.
 const KEEP_TRANSCRIPT = process.env.KEEP_TRANSCRIPT !== 'false';
 
 const memories = new MemoryStore(DATA_DIR);
 const sessions = new SessionStore(DATA_DIR, { keepTranscript: KEEP_TRANSCRIPT });
+const photos = new PhotoStore(DATA_DIR);
 
 /* ------------------------------------------------------------------ *
  * 캐릭터 — 이름 / 성격 / 목소리
@@ -103,6 +105,13 @@ app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] })
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+/* 사진은 녹음보다 작게 받는다. 화면에서 미리 줄여 보내므로 이 정도면 넉넉하다.
+   내용이 정말 사진인지는 lib/photo-store.js 가 파일 앞머리를 보고 다시 가린다. */
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
 });
 
 /* ------------------------------------------------------------------ *
@@ -664,6 +673,90 @@ app.post('/api/memories/:id/claims/:claimId/verify', async (req, res) => {
   } catch (err) {
     console.error('[memories] verify', err);
     fail(res, 500, '확인을 저장하지 못했어요.');
+  }
+});
+
+/**
+ * 사진을 올린다 (보호자가 등록).
+ *
+ * 이미 사진이 있으면 새것으로 바꾸고 옛 파일은 지운다.
+ * 안 그러면 아무도 안 보는 사진이 디스크에 쌓인다.
+ */
+app.post('/api/memories/:id/photo', photoUpload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) return fail(res, 400, '사진 파일이 없어요.');
+
+    const memory = await memories.get(req.params.id);
+    if (!memory) return fail(res, 404, '그런 기억이 없어요.');
+
+    let saved;
+    try {
+      saved = await photos.save(req.file.buffer);
+    } catch (err) {
+      return fail(res, 415, err.message);
+    }
+
+    const old = memory.photo?.file;
+    const updated = await memories.update(memory.memory_id, { photo: { file: saved.file } });
+    if (old && old !== saved.file) await photos.remove(old);
+
+    res.status(201).json({ memory: updated, photo: saved });
+  } catch (err) {
+    console.error('[photo] upload', err);
+    fail(res, 500, '사진을 저장하지 못했어요.');
+  }
+});
+
+/* 사진이 너무 크면 multer 가 던지는 오류를 우리 말로 바꿔 준다.
+   그냥 두면 브라우저에 영문 오류 페이지가 그대로 나간다. */
+app.use('/api/memories/:id/photo', (err, req, res, next) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return fail(res, 413, '사진이 너무 커요. 팔 메가바이트보다 작은 사진으로 올려 주세요.');
+  }
+  if (err) {
+    console.error('[photo] upload', err);
+    return fail(res, 400, '사진을 받지 못했어요.');
+  }
+  next();
+});
+
+/**
+ * 사진을 보여 준다.
+ *
+ * 기억을 거쳐서만 꺼낼 수 있게 했다. 파일 이름을 바로 받으면 이름을 바꿔 가며
+ * 남의 사진을 훑을 수 있다. nosniff 를 붙여 브라우저가 형식을 제 마음대로
+ * 다시 판단하지 못하게 한다.
+ */
+app.get('/api/memories/:id/photo', async (req, res) => {
+  try {
+    const memory = await memories.get(req.params.id);
+    if (!memory?.photo?.file) return fail(res, 404, '사진이 없어요.');
+
+    const found = await photos.open(memory.photo.file);
+    if (!found) return fail(res, 404, '사진 파일을 찾지 못했어요.');
+
+    res.setHeader('Content-Type', found.type);
+    res.setHeader('Content-Length', found.bytes);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.sendFile(found.path);
+  } catch (err) {
+    console.error('[photo] read', err);
+    fail(res, 500, '사진을 불러오지 못했어요.');
+  }
+});
+
+/** 사진만 지운다 (기억 자체는 남는다) */
+app.delete('/api/memories/:id/photo', async (req, res) => {
+  try {
+    const memory = await memories.get(req.params.id);
+    if (!memory) return fail(res, 404, '그런 기억이 없어요.');
+    if (memory.photo?.file) await photos.remove(memory.photo.file);
+    res.json({ memory: await memories.update(memory.memory_id, { photo: null }) });
+  } catch (err) {
+    console.error('[photo] delete', err);
+    fail(res, 500, '사진을 지우지 못했어요.');
   }
 });
 
