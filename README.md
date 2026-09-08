@@ -92,15 +92,27 @@ npm start
 
 ```
 server.js              Express 서버. OpenAI 호출을 대신하고 키를 감춥니다
-  /api/chat            GPT-4o 대화 → { reply, emotion, gesture } JSON
+  /api/chat            대화. 질문 예산을 계산해 프롬프트에 싣고, 응답도 검사합니다
   /api/tts             감정에 맞춘 목소리 생성 (mp3)
-  /api/stt             녹음 파일 받아쓰기 (음성인식 대체 경로)
+  /api/stt             녹음 파일 받아쓰기
+  /api/memories/*      회상 대화용 기억과 사진
+  /api/sessions/*      회기 기록과 평가 지표
 
-public/index.html      화면 구조
+lib/records.js         MEMORY · SESSION 의 구조 정의
+lib/jsonstore.js       한 건에 파일 하나로 저장 (나중에 DB 로 바꿀 자리)
+lib/memory-store.js    기억 고르는 순서, 확인 후 저장, 충돌 보존
+lib/session-store.js   회기 기록과 평가 지표
+lib/photo-store.js     사진 저장. 파일 앞머리를 보고 진짜 사진인지 가립니다
+lib/*.test.mjs         저장소 시험 (node lib/store.test.mjs)
+
+public/index.html      대화 화면
+public/memories.html   보호자용 기억 사진 등록 화면
 public/styles.css      시니어 친화 디자인
-public/avatar.js       초롱이 아바타 엔진 (SVG를 매 프레임 직접 변형)
-public/app.js          대화 흐름, 목소리 재생, 립싱크, 음성 인식
-public/expressions.html  초롱이의 모든 표정을 한눈에 보는 확인용 페이지
+public/avatar.js       아바타 엔진 (SVG를 매 프레임 직접 변형)
+public/app.js          대화 흐름, 목소리 재생, 립싱크, 음성 인식, 사진 이야기
+public/expressions.html  모든 표정을 한눈에 보는 확인용 페이지
+
+data/                  어르신의 사진과 이야기. 커밋하지 않습니다 (.gitignore)
 ```
 
 ## 설정 바꾸기 (.env)
@@ -113,6 +125,47 @@ public/expressions.html  초롱이의 모든 표정을 한눈에 보는 확인�
 | `VOICE_PITCH` | `1.16` | 음높이. 1은 원래 목소리, 1.2는 아주 높은 아이 목소리 (최대 1.35) |
 | `STT_MODEL` | `whisper-1` | 받아쓰기 모델 |
 | `PORT` | `3000` | 서버 포트 |
+| `ACCESS_CODE` | (없음) | 설정하면 이 암호를 아는 사람만 접속할 수 있습니다 |
+| `DATA_DIR` | `./data` | 사진과 기억이 저장될 폴더 |
+| `KEEP_TRANSCRIPT` | `true` | `false` 면 대화 원문을 남기지 않습니다 (지표는 그대로) |
+
+## 회상 대화
+
+어르신이 사진을 보며 옛 기억을 이야기하시도록 돕는 기능입니다.
+설계는 `회상대화_알고리즘` 문서를 따랐습니다.
+
+**핵심은 질문을 참는 것입니다.** 질문이 이어지면 대화가 아니라 기억력 검사처럼
+느껴지고, 어르신이 스스로 이야기를 이어가시려는 순간에 말을 끊게 됩니다.
+그래서 초롱이는 되짚기 · 공감 · 요약을 먼저 하고, 이야기가 멈췄을 때만 묻습니다.
+
+| 어르신 상태 | 초롱이 반응 | 질문 |
+| --- | --- | --- |
+| 위험 · 응급 표현 | `SAFETY_FLOW` 안전 안내 | 안 함 |
+| 아직 이야기 이어가는 중 | `BACKCHANNEL` 짧은 맞장구 | 안 함 |
+| 감정을 직접 말씀하심 | `VALIDATE_EMOTION` 감정 인정 | 안 함 |
+| 새 사건 · 사람 · 장소 | `REFLECT_CONTENT` 한 문장 되짚기 | 안 함 |
+| 한 이야기가 마무리됨 | `SUMMARIZE` 한 문장 요약 | 안 함 |
+| 말씀이 멈춤 | `FOLLOW_UP` 질문 하나 | **함** |
+| 불편 · 피로 | `OFFER_CHOICE` 선택 제공 | 선택만 |
+
+**질문 예산은 코드가 강제합니다.** 프롬프트로만 부탁하면 모델이 결국 질문을
+덧붙이기 때문입니다. `server.js` 의 `questionBudget()` 이 지난 이력을 세어
+이번 차례에 물어도 되는지 정하고, 대답이 온 뒤 `limitQuestions()` 가
+규칙을 어긴 질문 문장을 걷어냅니다.
+
+- 두 번 연속 질문하지 않습니다.
+- 한 주제(최근 여섯 발화)에서 회상 질문은 최대 세 개입니다.
+- 다만 **종료 선택과 안전 안내의 물음은 걷어내지 않습니다.**
+  여기서 자르면 어르신이 대화를 그만둘 길이 막힙니다.
+
+**없는 사실을 말하지 않게** 프롬프트에는 `verified_fields` 에 있는 항목만
+들어갑니다. 화면은 `memory_id` 만 보내고 내용은 서버가 직접 찾습니다.
+어르신이 새로 말씀하신 내용은 확인 전까지 `UNVERIFIED` 주장으로만 쌓입니다.
+
+### 사진 등록
+
+`/memories.html` 에서 보호자가 사진과 생애정보를 등록합니다.
+등록한 항목만 `verified_fields` 에 들어가고, 빈 칸은 대화에 쓰이지 않습니다.
 
 ## 안전 규칙
 
