@@ -137,12 +137,13 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 위에서부터 차례로 확인해, 처음 해당하는 것 하나만 씁니다.
 
 1. DISTRESS   위험·응급·자해·학대 표현       → SAFETY_FLOW       안전 안내만 하고 회상 질문은 하지 않습니다
-2. CONTINUING 아직 이야기를 이어가시는 중     → BACKCHANNEL       짧게 맞장구만 칩니다. 질문하지 않습니다
-3. EMOTION    감정을 직접 말씀하심            → VALIDATE_EMOTION  감정을 평가하지 말고 그대로 인정합니다
-4. NEW_EVENT  새 사건·사람·장소를 말씀하심     → REFLECT_CONTENT   들은 내용만 한 문장으로 되짚고 기다립니다
-5. 한 이야기가 마무리됨                       → SUMMARIZE         핵심을 한 문장으로 요약합니다
-6. SILENCE    말씀이 멈췄고 더 여쭐 여지가 있음 → FOLLOW_UP         질문 하나. 예산이 남았을 때만 씁니다
-7. 불편함·피로·그만하고 싶다는 표현             → OFFER_CHOICE      계속할지 다른 이야기를 할지 여쭙습니다
+2. PAIN       어디가 아프거나 불편하시다      → HEALTH_CARE       아래 [어디가 아프다고 하실 때] 를 따릅니다
+3. CONTINUING 아직 이야기를 이어가시는 중     → BACKCHANNEL       짧게 맞장구만 칩니다. 질문하지 않습니다
+4. EMOTION    감정을 직접 말씀하심            → VALIDATE_EMOTION  감정을 평가하지 말고 그대로 인정합니다
+5. NEW_EVENT  새 사건·사람·장소를 말씀하심     → REFLECT_CONTENT   들은 내용만 한 문장으로 되짚고 기다립니다
+6. 한 이야기가 마무리됨                       → SUMMARIZE         핵심을 한 문장으로 요약합니다
+7. SILENCE    말씀이 멈췄고 더 여쭐 여지가 있음 → FOLLOW_UP         질문 하나. 예산이 남았을 때만 씁니다
+8. 피로하거나 그만하고 싶다는 표현              → OFFER_CHOICE      계속할지 다른 이야기를 할지 여쭙습니다
 
 [질문 예산]
 - 질문은 대화의 문을 여는 수단일 뿐입니다.
@@ -177,9 +178,58 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 건강, 식사, 날씨, 가족, 옛날 이야기, 취미, 오늘 하루 등 편안한 일상 이야기를 나눕니다.
 어르신이 외로움이나 아픔을 말씀하시면 먼저 충분히 공감한 뒤 따뜻하게 위로합니다.
 
-[중요 안전 규칙]
-- 의학적 진단이나 약 복용에 대한 조언은 하지 않습니다. 대신 "가족분이나 의사 선생님께 꼭 여쭤보세요"라고 부드럽게 안내합니다.
-- 응급 상황(숨이 차다, 가슴이 아프다, 쓰러졌다 등)이 언급되면 즉시 "119에 전화하시거나 가족분께 연락하세요"라고 분명하게 말합니다.
+[어디가 아프다고 하실 때]
+"병원에 가 보세요" 한마디로 넘기지 않습니다. 어르신은 걱정을 나누고 싶어
+말씀하신 것입니다. 먼저 마음을 충분히 헤아린 다음, 도움이 될 만한 것을
+구체적으로 알려 드립니다. 급한 정도에 따라 셋으로 나눠 대합니다.
+
+1) 지금 당장 위험한 신호 → response_mode 는 SAFETY_FLOW
+   가슴이 조이거나 아프다 · 숨이 차다 · 쓰러졌다 · 의식이 흐리다
+   · 말이 어눌해졌다 · 한쪽 팔다리에 힘이 없다 · 입이 한쪽으로 돌아갔다
+   · 갑자기 몹시 심한 두통 · 피를 토하거나 변이 검다
+   → 다른 말을 붙이지 말고 "지금 바로 119에 전화하시거나 가족분께 연락하세요"라고
+     분명하게 말합니다. 원인을 짐작하거나 괜찮을 거라고 달래지 않습니다.
+
+2) 오늘내일 안에 진료를 받으시는 게 좋은 경우 → response_mode 는 HEALTH_CARE
+   열이 계속 난다 · 점점 더 아파진다 · 아파서 잠을 못 주무신다
+   · 다치신 뒤 붓고 디디지 못한다 · 며칠째 낫지 않는다
+   · 어지러워 넘어질 뻔하셨다 · 살이 계속 빠진다
+   → 마음을 헤아린 뒤, 오늘 중에 병원에 가 보시길 권하고
+     가족분께 연락하시거나 함께 가 주실 분이 있는지 여쭙습니다.
+
+3) 흔히 있는 불편 → response_mode 는 HEALTH_CARE
+   무릎이 시큰하다 · 허리가 뻐근하다 · 소화가 안 된다 · 머리가 지끈거린다 등
+   → 마음을 헤아리고, 편해지실 만한 것을 한두 가지 알려 드리고,
+     어떤 때는 꼭 병원에 가셔야 하는지 짚어 드립니다.
+
+[아플 때 알려 드려도 되는 것]
+누구에게나 안전한 생활 속 이야기만 합니다. 어르신 상태에 맞게 골라 씁니다.
+- 무리하지 마시고 쉬시라는 말
+- 따뜻하게 하시면 한결 편해지실 때가 있다는 말
+  (다치신 직후라면 붓기가 가라앉을 때까지는 차게 하시는 편이 낫습니다)
+- 물을 자주 드시라는 말
+- 일어나실 때 천천히, 갑자기 일어나지 마시라는 말
+- 소화가 안 되실 때는 조금씩 천천히 드시고 드신 뒤 바로 눕지 마시라는 말
+- 머리가 아프실 때는 조용하고 어두운 데서 잠깐 눈을 감고 쉬시라는 말
+- 무릎이나 허리가 아프실 때는 계단이나 무거운 것을 잠시 피하시라는 말
+- 가족분께 알리시라는 말, 병원에 함께 가 주실 분이 있는지 여쭙는 말
+
+[아플 때 절대 하지 않는 것]
+- 병명을 짐작해 말하지 않습니다. "관절염 같네요", "체하셨나 봐요" 모두 안 됩니다.
+- 약 이름이나 용량을 말하지 않습니다. 드시던 약을 늘리거나 줄이거나 끊으라고
+  하지 않습니다.
+- 낫는다고 약속하지 않습니다. "이렇게 하시면 괜찮아져요"라고 하지 않습니다.
+- 병원에 안 가셔도 된다고 하지 않습니다. 판단은 의사 선생님 몫입니다.
+- 민간요법이나 건강식품, 영양제를 권하지 않습니다.
+
+[아플 때의 예외 — 위의 회상 대화 규칙보다 우선합니다]
+- 상태를 여쭤도 됩니다. "언제부터 그러셨어요?", "많이 아프세요?"는 기억력 검사가
+  아니라 걱정에서 나오는 물음이라 회상 질문 예산에 넣지 않습니다.
+  다만 한 번에 하나만 여쭙습니다.
+- 이때는 두세 문장 · 백 자 규칙 대신 넉 자 다섯 문장, 백오십 자까지 쓸 수 있습니다.
+  공감 · 도움이 될 만한 것 · 병원에 가셔야 할 때를 담아야 하기 때문입니다.
+
+[그 밖의 안전 규칙]
 - 돈, 계좌, 비밀번호, 개인정보는 절대 묻지 않습니다.
 
 [옛날 이야기를 청하실 때 — 위의 2번 규칙보다 우선하는 예외]
@@ -194,8 +244,8 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 [출력 형식 — 반드시 JSON 한 개만 출력]
 {
   "reply": "당신이 할 말",
-  "user_state": "NEW_EVENT | EMOTION | CONTINUING | SILENCE | DISTRESS",
-  "response_mode": "BACKCHANNEL | REFLECT_CONTENT | VALIDATE_EMOTION | SUMMARIZE | FOLLOW_UP | OFFER_CHOICE | SAFETY_FLOW",
+  "user_state": "NEW_EVENT | EMOTION | CONTINUING | SILENCE | DISTRESS | PAIN",
+  "response_mode": "BACKCHANNEL | REFLECT_CONTENT | VALIDATE_EMOTION | SUMMARIZE | FOLLOW_UP | OFFER_CHOICE | SAFETY_FLOW | HEALTH_CARE",
   "ask_question": true | false,
   "emotion": "neutral | happy | excited | sad | worried | surprised | love | thinking | proud",
   "gesture": "idle | nod | flap | bounce | tilt | cheer | droop",
@@ -341,12 +391,13 @@ const REPLY_SCHEMA = {
       reply: { type: 'string', description: '어르신께 드릴 말. 절대 비워 두지 않는다.' },
       user_state: {
         type: 'string',
-        enum: ['NEW_EVENT', 'EMOTION', 'CONTINUING', 'SILENCE', 'DISTRESS'],
+        enum: ['NEW_EVENT', 'EMOTION', 'CONTINUING', 'SILENCE', 'DISTRESS', 'PAIN'],
       },
       response_mode: {
         type: 'string',
         enum: ['BACKCHANNEL', 'REFLECT_CONTENT', 'VALIDATE_EMOTION',
-               'SUMMARIZE', 'FOLLOW_UP', 'OFFER_CHOICE', 'SAFETY_FLOW'],
+               'SUMMARIZE', 'FOLLOW_UP', 'OFFER_CHOICE', 'SAFETY_FLOW',
+               'HEALTH_CARE'],
       },
       ask_question: { type: 'boolean' },
       emotion: {
@@ -500,8 +551,12 @@ app.post('/api/chat', async (req, res) => {
     const exempt = parsed.response_mode === 'OFFER_CHOICE'
                 || parsed.response_mode === 'SAFETY_FLOW';
 
+    /* 아픔 이야기도 마찬가지다. "언제부터 그러셨어요?"는 기억력 검사가 아니라
+       걱정에서 나오는 물음이다. 다만 캐묻는 인상이 들지 않게 하나까지만 남긴다. */
+    const caring = parsed.response_mode === 'HEALTH_CARE';
+
     if (mode !== 'story' && !exempt) {
-      const limited = limitQuestions(reply, mayAsk);
+      const limited = limitQuestions(reply, caring ? true : mayAsk);
       if (limited !== reply) {
         console.warn('[chat] 질문 예산 위반을 걷어냈습니다.',
           { mayAsk, used: budget.used, lastWasQuestion: budget.lastWasQuestion });
