@@ -46,6 +46,17 @@
   .tag.t { background: #EEF1F7; color: #46536B; }
   .item .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
   .item.dim img, .item.dim .no-photo { opacity: .45; }
+
+  .log { display: flex; flex-direction: column; gap: 14px; }
+  .log-item { border-left: 3px solid var(--brand); padding: 2px 0 2px 13px; }
+  .log-head {
+    display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline;
+    font-size: calc(var(--base) * .8); color: var(--ink-3);
+  }
+  .log-topic { font-weight: 700; font-size: calc(var(--base) * .95); color: var(--ink); }
+  .log-said { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); font-size: calc(var(--base) * .88); }
+  .log-said li { margin-bottom: 3px; }
+  .log-emo { color: var(--brand); font-weight: 600; }
   .back { display: inline-block; margin-bottom: 10px; color: var(--ink-2); }
   .save {
     font: inherit; font-weight: 700; color: #fff; background: var(--brand);
@@ -100,6 +111,14 @@
     </div>
     <div class="msg" id="msg"></div>
   </form>
+
+  <div class="card">
+    <h2>어르신이 하신 이야기</h2>
+    <p class="hint" style="margin:-8px 0 14px">
+      무슨 이야기를 하셨는지 알고 계시면, 만나셨을 때 그 이야기를 이어 나누실 수 있어요.
+    </p>
+    <div class="log" id="log"></div>
+  </div>
 
   <div class="card">
     <h2>등록된 기억 <span id="count" class="hint"></span></h2>
@@ -266,7 +285,48 @@ async function load() {
   }).join('') || '<div class="hint">아직 등록된 기억이 없습니다.</div>';
 }
 
+/* 회상 기록 — 어르신이 무슨 이야기를 하셨는지 */
+const WHEN = (iso) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const time = d.getHours() + '시 ' + String(d.getMinutes()).padStart(2, '0') + '분';
+  return sameDay ? '오늘 ' + time : (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + time;
+};
+
+async function loadLog() {
+  let out;
+  try {
+    out = await fetch('/api/sessions?owner=' + encodeURIComponent(OWNER)).then((r) => r.json());
+  } catch {
+    return;
+  }
+  const list = (out.sessions || []).filter((s) => s.userTurns > 0);
+  if (list.length === 0) {
+    $('log').innerHTML = '<div class="hint">아직 나눈 이야기가 없어요.</div>';
+    return;
+  }
+
+  $('log').innerHTML = list.map((s) => {
+    const mins = Math.max(1, Math.round((s.elapsed_seconds || 0) / 60));
+    const emo = (s.user_reported_emotion || []).length
+      ? '<span class="log-emo">' + esc(s.user_reported_emotion.join(', ')) + '</span>' : '';
+
+    const said = s.said.length
+      ? '<ul class="log-said">' + s.said.slice(0, 5).map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>'
+      : '<div class="hint">' + s.userTurns + '마디 나누셨어요. (대화 내용은 남기지 않는 설정이에요)</div>';
+
+    return '<div class="log-item">'
+      + '<div class="log-topic">' + (esc(s.topic) || '이야기 나누기') + '</div>'
+      + '<div class="log-head"><span>' + WHEN(s.started_at) + '</span>'
+      + '<span>' + mins + '분</span>' + emo + '</div>'
+      + said + '</div>';
+  }).join('');
+}
+
 load();
+loadLog();
 </script>
 </body>
 </html>

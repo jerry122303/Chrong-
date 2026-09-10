@@ -1083,6 +1083,48 @@ app.post('/api/sessions/:id/close', async (req, res) => {
   }
 });
 
+/**
+ * 최근 회상 기록.
+ *
+ * 어르신이 무슨 이야기를 하셨는지 가족이 알면, 저녁상에서 그 이야기를 이어
+ * 나눈다. 회상 도구의 값어치는 앱 안에서 끝나지 않고 그 다음 대화에 있다.
+ * 그래서 숫자만이 아니라 어르신이 하신 말씀을 함께 돌려준다.
+ *
+ * 원문을 남기지 않는 설정이면 말씀 대신 몇 마디 하셨는지만 나간다.
+ */
+app.get('/api/sessions', async (req, res) => {
+  try {
+    const list = (await sessions.listFor(owner(req))).slice(0, 20);
+
+    const titles = new Map();
+    const out = [];
+    for (const s of list) {
+      if (s.memory_id && !titles.has(s.memory_id)) {
+        const m = await memories.get(s.memory_id);
+        titles.set(s.memory_id, m ? m.title : '');
+      }
+      out.push({
+        session_id: s.session_id,
+        started_at: s.started_at,
+        elapsed_seconds: s.elapsed_seconds,
+        ended_by: s.ended_by,
+        topic: s.memory_id ? (titles.get(s.memory_id) || '') : '',
+        user_reported_emotion: s.user_reported_emotion,
+        // 어르신이 하신 말씀만 (초롱이 말은 뺀다. 가족이 궁금한 건 어르신 쪽이다)
+        said: s.turns
+          .filter((t) => t.role === 'user')
+          .map((t) => (t.text ? t.text : ''))
+          .filter(Boolean),
+        userTurns: s.turns.filter((t) => t.role === 'user').length,
+      });
+    }
+    res.json({ sessions: out, keepTranscript: KEEP_TRANSCRIPT });
+  } catch (err) {
+    console.error('[sessions] list', err);
+    fail(res, 500, '대화 기록을 불러오지 못했어요.');
+  }
+});
+
 /** 문서의 초기 평가 지표 */
 app.get('/api/sessions/metrics', async (req, res) => {
   res.json({ metrics: await sessions.metrics(owner(req)) });
