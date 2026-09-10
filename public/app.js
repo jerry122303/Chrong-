@@ -720,13 +720,21 @@ function showMemory(memory) {
   ui.stage.classList.toggle('with-memory', on);
   ui.photo.setAttribute('aria-pressed', String(on));
   ui.photoState.textContent = on ? '켜짐' : '꺼짐';
+  if (on) {
+    const theme = memory.kind === 'THEME';
+    ui.nextPhoto.textContent = theme ? '다른 이야기' : '다른 사진';
+    ui.closePhoto.textContent = theme ? '그만하기' : '그만 보기';
+  }
 
   if (on) {
-    ui.memoryPhoto.hidden = !memory.photo;
-    if (memory.photo) {
+    const hasPhoto = Boolean(memory.photo);
+    ui.memoryPhoto.hidden = !hasPhoto;
+    if (hasPhoto) {
       ui.memoryPhoto.src = '/api/memories/' + memory.memory_id + '/photo';
       ui.memoryPhoto.alt = memory.title || '기억 사진';
     }
+    // 사진이 없는 이야깃거리는 빈 칸 대신 주제를 크게 보여 준다
+    ui.memory.classList.toggle('no-photo', !hasPhoto);
     ui.memoryTitle.textContent = memory.title || '';
   }
 }
@@ -832,6 +840,24 @@ async function decideKeep(keep) {
 
 ui.keepYes.addEventListener('click', () => decideKeep(true));
 ui.keepNo.addEventListener('click', () => decideKeep(false));
+
+/**
+ * 이야기를 여는 말.
+ *
+ * 주제는 사진이 없으므로 '이 사진을 보면' 하고 말하면 안 된다. 있지도 않은
+ * 사진을 찾으시게 된다. 주제에는 그 주제에 맞는 물음이 미리 붙어 있다.
+ * 물음표는 하나만 쓴다. 둘을 이어 붙이면 무엇에 답해야 할지 헷갈리신다.
+ */
+function openingLineFor(memory, again = false) {
+  if (memory.kind === 'THEME') {
+    const q = memory.open_prompt || '어떤 기억이 떠오르세요?';
+    return again ? `이번에는 ${memory.title} 이야기를 해 볼까 해요. ${q}` : q;
+  }
+  const what = memory.title ? `${memory.title} 사진` : '이 사진';
+  return again
+    ? `이번에는 ${what}을 볼게요. 어떤 기억이 떠오르세요?`
+    : `${what}을 함께 볼게요. 어떤 일이 가장 먼저 떠오르세요?`;
+}
 
 /** 다음에 볼 사진을 서버에서 받아 온다 (선택 순서는 서버가 정한다) */
 async function pickMemory() {
@@ -941,9 +967,7 @@ async function startMemoryTalk() {
   if (!state.sessionStart) state.sessionStart = Date.now();
   await startSession(memory.memory_id);
 
-  const opening = memory.title
-    ? `${memory.title} 사진을 함께 볼까요? 이 사진을 보면 어떤 일이 가장 먼저 떠오르세요?`
-    : '사진을 보면서 잠깐 이야기해 볼까요? 이 사진을 보면 어떤 일이 가장 먼저 떠오르세요?';
+  const opening = openingLineFor(memory);
 
   ui.subtitle.textContent = opening;
   addMessage('bot', opening);
@@ -991,9 +1015,7 @@ ui.nextPhoto.addEventListener('click', async () => {
   showMemory(memory);
   scheduleAutoClose();
 
-  const line = memory.title
-    ? `이번에는 ${memory.title} 사진이에요. 어떤 기억이 떠오르세요?`
-    : '다른 사진을 볼까요? 어떤 기억이 떠오르세요?';
+  const line = openingLineFor(memory, true);
   ui.subtitle.textContent = line;
   addMessage('bot', line);
   state.history.push({ role: 'assistant', content: line });

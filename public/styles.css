@@ -780,3 +780,11 @@ body.has-keybar { grid-template-rows: auto auto 1fr auto; }
   font-weight: 700;
 }
 .keep-yes:hover { background: var(--brand-2); color: #fff; }
+
+/* 사진 없이 주제로만 이야기할 때 — 빈 사진 칸 대신 주제를 크게 보여 준다 */
+.memory.no-photo .memory-title {
+  font-size: calc(var(--base) * 1.25);
+  color: var(--brand);
+  padding: 18px 10px;
+  line-height: 1.4;
+}

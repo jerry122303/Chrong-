@@ -306,8 +306,26 @@ function questionBudget(history) {
  * 확인된 항목만 넘긴다. 보호자나 어르신이 확인해 주지 않은 값은
  * 아무리 그럴듯해도 넣지 않는다. 넣는 순간 모델이 그것을 사실로 말한다.
  */
-function buildMemoryContext(facts) {
+function buildMemoryContext(facts, kind = 'PHOTO') {
   if (!facts || Object.keys(facts).length === 0) return '';
+
+  /* 주제는 어르신 개인의 사실이 아니라 이야깃거리다. 사진처럼 '이 사진에는'
+     하고 말하면 있지도 않은 사진을 있는 것처럼 말하게 된다. */
+  if (kind === 'THEME') {
+    return ['', '[지금 나누는 이야깃거리]',
+      `- ${facts.title || ''}`,
+      '- 이것은 이야기를 여는 주제일 뿐입니다. 어르신에 대해 아는 사실이 아닙니다.',
+      '- 어르신이 말씀하시기 전까지는 어떤 일이 있었는지 짐작해 말하지 마십시오.',
+      '- 사진을 함께 보고 있는 것처럼 말하지 마십시오. 지금은 사진이 없습니다.',
+      '- 날짜나 사람 이름을 맞히게 하지 마십시오.',
+      '',
+      '[새로 들은 이야기 적어 두기]',
+      '- 어르신이 말씀하신 사람 · 장소 · 시기 · 일을 extracted_facts 에 담습니다.',
+      '  어르신이 직접 말씀하신 것만 담습니다. 짐작한 것은 담지 않습니다.',
+      '- 담았다고 해서 그 자리에서 "기억해 둘게요" 같은 말을 하지 않습니다.',
+      '- 어르신이 직접 말씀하신 감정은 user_reported_emotion 에 담습니다.',
+    ].join('\n');
+  }
 
   const label = {
     title: '무슨 일', people: '함께한 사람', place: '장소',
@@ -497,7 +515,7 @@ app.post('/api/chat', async (req, res) => {
   if (req.body?.memory_id) {
     try {
       const memory = await memories.get(String(req.body.memory_id));
-      if (memory) memoryContext = buildMemoryContext(memories.facts(memory));
+      if (memory) memoryContext = buildMemoryContext(memories.facts(memory), memory.kind);
     } catch (err) {
       console.warn('[chat] 사진 정보를 읽지 못했습니다', err);
     }
@@ -798,6 +816,9 @@ app.post('/api/memories', async (req, res) => {
 /** 다음에 이야기할 기억을 고른다 (문서 2번의 순서를 따른다) */
 app.get('/api/memories/next', async (req, res) => {
   try {
+    // 사진이 없어도 첫날부터 이야기할 수 있게, 이야깃거리를 처음 한 번 심어 둔다
+    await memories.seedThemes(owner(req));
+
     const exclude = String(req.query?.exclude || '').split(',').filter(Boolean);
     const picked = await memories.selectMemory(owner(req), {
       pickedId: req.query?.picked || undefined,
