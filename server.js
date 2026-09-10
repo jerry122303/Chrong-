@@ -629,6 +629,8 @@ app.post('/api/chat', async (req, res) => {
       userState: String(parsed.user_state || ''),
       responseMode: String(parsed.response_mode || ''),
       askQuestion: hasQuestion(reply),
+      // 회기 길이는 서버가 정한다. 화면이 따로 세면 두 값이 어긋난다.
+      shouldClose: closing,
       userReportedEmotion: Array.isArray(parsed.user_reported_emotion)
         ? parsed.user_reported_emotion.filter((e) => typeof e === 'string' && e.trim()).slice(0, 4)
         : [],
@@ -1027,6 +1029,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true, hasKey: Boolean(OPENAI_API_KEY), chatModel: CHAT_MODEL,
     dataDir: DATA_DIR, keepTranscript: KEEP_TRANSCRIPT,
+    sessionLimitSeconds: SESSION_SECONDS,
   });
 });
 

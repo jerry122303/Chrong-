@@ -72,6 +72,7 @@ let currentSource = null;
 let lipRAF = 0;
 let idleTimer = 0;
 let waitTimer = 0;
+let closeTimer = 0;
 
 /* ==================================================================
  *  기본 도구
@@ -185,6 +186,13 @@ async function sendMessage(text) {
       asked_question: data.askQuestion,
       user_reported_emotion: data.userReportedEmotion,
     });
+
+    /* 오 분이 지나 초롱이가 마무리를 여쭈었으면, 그 말이 끝난 뒤 사진을 접는다.
+       여쭙기만 하고 그대로 두면 어르신이 답하실 때까지 사진이 계속 떠 있고
+       오늘 들은 이야기도 확인받지 못한 채 남는다. */
+    if (state.memory && data.shouldClose) {
+      closingAfterSpeech = true;
+    }
     state.lastReply = { text: data.reply, emotion: data.emotion, mode: data.mode };
 
     addMessage('bot', data.reply);
@@ -237,6 +245,7 @@ async function speak(text, emotion, mode) {
   if (!state.soundOn) {
     setStatus('idle', '말씀해 주세요');
     scheduleIdle();
+    afterSpeaking();
     return;
   }
 
@@ -305,6 +314,18 @@ async function speak(text, emotion, mode) {
 
   setStatus('idle', '말씀해 주세요');
   scheduleIdle();
+  afterSpeaking();
+}
+
+/**
+ * 초롱이가 말을 마친 뒤에 할 일.
+ * 소리를 끄면 speak() 가 일찍 반환하므로, 두 갈래 모두에서 이걸 부른다.
+ * 한쪽에만 두면 소리를 끈 어르신에게는 사진이 접히지 않는다.
+ */
+function afterSpeaking() {
+  if (!closingAfterSpeech) return;
+  closingAfterSpeech = false;
+  wrapUpMemoryTalk();          // 이미 여쭈었으므로 인사를 덧붙이지 않는다
 }
 
 /* 서버 목소리를 못 쓸 때는 브라우저 기본 음성으로 말한다 */
@@ -822,6 +843,80 @@ async function pickMemory() {
   return out.memory || null;
 }
 
+/* --- 한 회기가 길어지면 스스로 마무리한다 (문서 10번 CLOSE_SESSION) ---
+   회상이 길어지면 피로하시고 같은 이야기가 되풀이된다. 문서는 한 회기를
+   오 분쯤으로 본다.
+
+   길이는 서버가 정한다. 여기서 따로 세어 두면 서버가 마무리를 여쭙는 시점과
+   화면이 사진을 접는 시점이 어긋난다. 서버에 못 물어보면 오 분으로 본다. */
+let sessionLimitMs = 5 * 60 * 1000;
+
+fetch('/api/health')
+  .then((r) => r.json())
+  .then((h) => {
+    if (h && Number(h.sessionLimitSeconds) > 0) {
+      sessionLimitMs = Number(h.sessionLimitSeconds) * 1000;
+    }
+  })
+  .catch(() => { /* 기본값을 그대로 쓴다 */ });
+
+/** 지금 끼어들어도 되는 때인가. 말씀하시는 중에 끊지 않는다. */
+const canInterrupt = () => !state.busy && !state.listening && !currentSource;
+
+/**
+ * 사진 이야기를 접는다.
+ * 버튼을 눌러 접든 시간이 다 되어 접든 하는 일은 같으므로 한 곳에 모았다.
+ * 두 갈래로 동시에 불릴 수 있어 한 번만 돌게 막아 둔다.
+ */
+let wrappingUp = false;
+/* 초롱이가 마무리 인사를 하는 중이면, 말이 끝난 뒤에 접는다 */
+let closingAfterSpeech = false;
+async function wrapUpMemoryTalk({ farewell = '' } = {}) {
+  if (wrappingUp || !state.memory) return;
+  wrappingUp = true;
+  clearTimeout(closeTimer);
+
+  try {
+    if (farewell) {
+      ui.subtitle.textContent = farewell;
+      addMessage('bot', farewell);
+      state.history.push({ role: 'assistant', content: farewell });
+      state.lastReply = { text: farewell, emotion: 'happy', mode: 'talk' };
+      saveHistory();
+      avatar.setEmotion('happy');
+      avatar.playGesture('nod');
+      await speak(farewell, 'happy', 'talk');
+    }
+
+    const memoryId = state.memory ? state.memory.memory_id : null;
+    const asked = await askToKeep(memoryId, state.sessionId);
+    await closeSession('TIMEOUT');
+    if (!asked) hideKeep();
+    showMemory(null);
+    ui.memoryPhoto.removeAttribute('src');
+  } finally {
+    wrappingUp = false;
+  }
+}
+
+/**
+ * 오 분이 지났는지 이따금 살핀다.
+ * 시간이 됐어도 말씀하시는 중이면 기다렸다가 다음 번에 다시 본다.
+ */
+function scheduleAutoClose() {
+  clearTimeout(closeTimer);
+  if (!state.memory) return;
+
+  closeTimer = setTimeout(() => {
+    if (!state.memory) return;
+    const over = state.sessionStart && (Date.now() - state.sessionStart) >= sessionLimitMs;
+    if (!over || !canInterrupt()) { scheduleAutoClose(); return; }
+    wrapUpMemoryTalk({
+      farewell: '오늘 이야기 잘 들었어요. 사진은 이만 접을게요.',
+    });
+  }, 15000);
+}
+
 /**
  * 사진 이야기를 시작한다.
  * 문서 4번대로 처음 한 번만 개방형 질문을 던지고, 그 뒤로는 평소 규칙을 따른다.
@@ -859,15 +954,23 @@ async function startMemoryTalk() {
   avatar.setEmotion('happy');
   avatar.playGesture('nod');
   speak(opening, 'happy', 'talk');
+  scheduleAutoClose();
 }
 
 async function stopMemoryTalk() {
-  const memoryId = state.memory ? state.memory.memory_id : null;
-  const asked = await askToKeep(memoryId, state.sessionId);
-  await closeSession('USER');
-  if (!asked) hideKeep();
-  showMemory(null);
-  ui.memoryPhoto.removeAttribute('src');
+  clearTimeout(closeTimer);
+  if (wrappingUp) return;
+  wrappingUp = true;
+  try {
+    const memoryId = state.memory ? state.memory.memory_id : null;
+    const asked = await askToKeep(memoryId, state.sessionId);
+    await closeSession('USER');
+    if (!asked) hideKeep();
+    showMemory(null);
+    ui.memoryPhoto.removeAttribute('src');
+  } finally {
+    wrappingUp = false;
+  }
 }
 
 ui.photo.addEventListener('click', () => {
@@ -886,6 +989,7 @@ ui.nextPhoto.addEventListener('click', async () => {
   await closeSession('USER');
   await startSession(memory.memory_id);
   showMemory(memory);
+  scheduleAutoClose();
 
   const line = memory.title
     ? `이번에는 ${memory.title} 사진이에요. 어떤 기억이 떠오르세요?`
