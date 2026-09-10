@@ -42,6 +42,10 @@
   .tag { display: inline-block; font-size: calc(var(--base) * .74); padding: 1px 7px; border-radius: 20px; margin-top: 5px; }
   .tag.v { background: #E8F3EC; color: #1F5637; }
   .tag.u { background: #FBF1E3; color: #8A5A1E; }
+  .tag.d { background: #FBEAEA; color: #8C2F2F; }
+  .tag.t { background: #EEF1F7; color: #46536B; }
+  .item .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .item.dim img, .item.dim .no-photo { opacity: .45; }
   .back { display: inline-block; margin-bottom: 10px; color: var(--ink-2); }
   .save {
     font: inherit; font-weight: 700; color: #fff; background: var(--brand);
@@ -99,6 +103,7 @@
 
   <div class="card">
     <h2>등록된 기억 <span id="count" class="hint"></span></h2>
+    <div class="msg bad" id="distress-note" hidden></div>
     <div class="list" id="list"></div>
   </div>
 </div>
@@ -230,16 +235,33 @@ async function load() {
   const memories = out.memories || [];
   $('count').textContent = memories.length ? '(' + memories.length + '건)' : '';
 
+  /* 어르신이 힘들어하신 것은 다음부터 저절로 나오지 않는다.
+     보호자가 사정을 알고 다시 열지 판단해야 하므로 눈에 띄게 알린다. */
+  const upset = memories.filter((m) => m.distress_flag);
+  const note = $('distress-note');
+  note.hidden = upset.length === 0;
+  if (upset.length) {
+    note.textContent = '어르신이 힘들어하신 이야기가 ' + upset.length + '건 있어요. '
+      + '다음부터는 저절로 꺼내지 않습니다. (' + upset.map((m) => m.title).join(', ') + ')';
+  }
+
   $('list').innerHTML = memories.map((m) => {
     const ok = m.verification_status !== 'UNVERIFIED';
     const art = m.photo
       ? '<img src="/api/memories/' + m.memory_id + '/photo" alt="' + esc(m.title) + '">'
       : '<div class="no-photo">사진 없음</div>';
     const sub = esc([m.place, m.when_text].filter(Boolean).join(' · '));
-    return '<div class="item">' + art + '<div class="body">'
+
+    const tags = ['<span class="tag ' + (ok ? 'v' : 'u') + '">' + (ok ? '확인됨' : '확인 전') + '</span>'];
+    if (m.kind === 'THEME') tags.push('<span class="tag t">이야깃거리</span>');
+    if (m.distress_flag) tags.push('<span class="tag d">힘들어하심</span>');
+    if (m.hidden) tags.push('<span class="tag d">감춤</span>');
+
+    return '<div class="item' + (m.distress_flag || m.hidden ? ' dim' : '') + '">' + art
+      + '<div class="body">'
       + '<div class="t">' + (esc(m.title) || '(제목 없음)') + '</div>'
       + '<div class="s">' + sub + '</div>'
-      + '<span class="tag ' + (ok ? 'v' : 'u') + '">' + (ok ? '확인됨' : '확인 전') + '</span>'
+      + '<div class="tags">' + tags.join('') + '</div>'
       + '</div></div>';
   }).join('') || '<div class="hint">아직 등록된 기억이 없습니다.</div>';
 }

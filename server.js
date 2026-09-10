@@ -222,6 +222,26 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 - 병원에 안 가셔도 된다고 하지 않습니다. 판단은 의사 선생님 몫입니다.
 - 민간요법이나 건강식품, 영양제를 권하지 않습니다.
 
+[힘들어하실 때 — topic_distress 판단]
+회상 중에 눈물을 보이시거나 그리워하시는 것은 자연스러운 일입니다. 오히려
+마음이 풀리는 과정이라 막을 이유가 없습니다. 그러니 슬퍼하신다고 해서
+topic_distress 를 참으로 하지 마십시오.
+
+topic_distress 를 참으로 하는 때 — 이 이야기 자체를 더는 보고 싶어 하지 않으실 때
+- "이건 보기 싫어", "그만 보자", "치워라" 처럼 그 사진이나 주제를 물리치실 때
+- 화를 내시거나 짜증을 내실 때
+- 여쭐 때마다 말을 돌리시며 그 이야기를 피하실 때
+- "말하고 싶지 않아", "묻지 마" 라고 하실 때
+
+거짓으로 두는 때 — 감정이 북받치지만 이야기는 이어가실 때
+- 눈물을 보이시지만 계속 말씀하실 때
+- "보고 싶다", "그립다", "허전하다" 처럼 그리움을 말씀하실 때
+- 돌아가신 분 이야기를 담담히 하실 때
+- 그냥 피곤하다고 하실 때 (이건 OFFER_CHOICE 로 쉬시게 하면 됩니다)
+
+참으로 판단했다면 캐묻지 말고 물러납니다. 다른 이야기를 하실지 쉬실지
+여쭙고, 왜 싫으신지 이유를 묻지 않습니다.
+
 [아플 때의 예외 — 위의 회상 대화 규칙보다 우선합니다]
 - 상태를 여쭤도 됩니다. "언제부터 그러셨어요?", "많이 아프세요?"는 기억력 검사가
   아니라 걱정에서 나오는 물음이라 회상 질문 예산에 넣지 않습니다.
@@ -415,7 +435,8 @@ const REPLY_SCHEMA = {
     type: 'object',
     additionalProperties: false,
     required: ['reply', 'user_state', 'response_mode', 'ask_question',
-               'emotion', 'gesture', 'mode', 'extracted_facts', 'user_reported_emotion'],
+               'emotion', 'gesture', 'mode', 'extracted_facts', 'user_reported_emotion',
+               'topic_distress'],
     properties: {
       reply: { type: 'string', description: '어르신께 드릴 말. 절대 비워 두지 않는다.' },
       user_state: {
@@ -461,6 +482,10 @@ const REPLY_SCHEMA = {
 
       /* 어르신이 직접 말씀하신 감정만. 표정이나 사진을 보고 짐작한 것은 넣지 않는다. */
       user_reported_emotion: { type: 'array', items: { type: 'string' } },
+
+      /* 이 사진이나 주제 자체를 힘들어하시는가.
+         슬퍼하시는 것과는 다르다. 아래 [힘들어하실 때] 를 그대로 따른다. */
+      topic_distress: { type: 'boolean' },
     },
   },
 };
@@ -615,6 +640,22 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
+    /* 이 사진이나 주제를 힘들어하시면 표시해 둔다.
+       표시된 것은 다음부터 자동 선택에서 빠진다. 지우지는 않는다.
+       보호자가 사정을 알고 다시 열지 판단해야 한다. */
+    let markedDistress = false;
+    if (req.body?.memory_id && parsed.topic_distress === true) {
+      try {
+        const updated = await memories.update(String(req.body.memory_id), { distress_flag: true });
+        markedDistress = Boolean(updated);
+        if (markedDistress) {
+          console.warn('[chat] 힘들어하셔서 표시해 둡니다.', req.body.memory_id);
+        }
+      } catch (err) {
+        console.warn('[chat] 표시하지 못했습니다', err);
+      }
+    }
+
     /* 어르신이 새로 말씀하신 내용을 쌓아 둔다.
        확인 전까지는 UNVERIFIED 라 프롬프트에도 들어가지 않는다.
        (문서 9번: 모델 추론은 확정 저장하지 않는다) */
@@ -649,6 +690,7 @@ app.post('/api/chat', async (req, res) => {
       askQuestion: hasQuestion(reply),
       // 회기 길이는 서버가 정한다. 화면이 따로 세면 두 값이 어긋난다.
       shouldClose: closing,
+      topicDistress: markedDistress,
       userReportedEmotion: Array.isArray(parsed.user_reported_emotion)
         ? parsed.user_reported_emotion.filter((e) => typeof e === 'string' && e.trim()).slice(0, 4)
         : [],
