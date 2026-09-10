@@ -726,3 +726,57 @@ body.has-keybar { grid-template-rows: auto auto 1fr auto; }
   .stage.with-memory .stage-bar { grid-area: bar; }
   .stage.with-memory .subtitle  { grid-area: sub; }
 }
+
+/* ==================================================================
+ *  새로 들은 이야기를 기억으로 남길지 여쭙기 (회상 대화 문서 9번)
+ *  음성인식이 잘못 알아듣거나 모델이 잘못 새겨들은 내용이 사실로 굳지
+ *  않도록, 저장 전에 어르신께 한 번 보여 드리고 여쭙는다.
+ * ================================================================== */
+.keep {
+  flex: 0 0 auto;
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--brand);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.keep[hidden] { display: none; }
+.keep-q {
+  margin: 0;
+  font-size: calc(var(--base) * .9);
+  font-weight: 700;
+  color: var(--ink);
+}
+.keep-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(var(--base) * .86);
+  color: var(--ink-2);
+  max-height: 26vh;
+  overflow-y: auto;
+}
+.keep-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.keep-btn {
+  font: inherit;
+  font-size: calc(var(--base) * .82);
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.keep-btn:hover { border-color: var(--brand); color: var(--brand); }
+.keep-yes {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: 700;
+}
+.keep-yes:hover { background: var(--brand-2); color: #fff; }

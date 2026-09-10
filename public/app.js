@@ -23,6 +23,8 @@ const ui = {
   photo: $('btn-photo'), photoState: $('photo-state'),
   memory: $('memory'), memoryPhoto: $('memory-photo'), memoryTitle: $('memory-title'),
   nextPhoto: $('btn-next-photo'), closePhoto: $('btn-close-photo'),
+  keep: $('keep'), keepList: $('keep-list'),
+  keepYes: $('btn-keep-yes'), keepNo: $('btn-keep-no'),
   brandMark: document.querySelector('.brand-mark'),
 };
 
@@ -43,6 +45,11 @@ const state = {
   // 지금 함께 보고 있는 사진. 아이디만 서버에 보내고, 사실은 서버가 찾는다.
   memory: null,
   seenMemories: [],   // 이번 회기에 이미 본 사진 (같은 사진이 되풀이되지 않게)
+  sessionId: null,    // 서버에 남기는 회기 기록
+  pending: [],        // 아직 확인받지 못한, 오늘 새로 들은 이야기
+  // 어느 기억에 대해 여쭙는 중인지. 사진을 내린 뒤에도 답을 기다려야 해서
+  // state.memory 와 따로 붙들어 둔다.
+  pendingMemoryId: null,
   waited: false,        // 이번 차례에 '천천히 생각하셔도 괜찮아요'를 이미 안내했는지
 };
 
@@ -139,6 +146,7 @@ async function sendMessage(text) {
   ui.input.value = '';
   addMessage('me', message);
   state.history.push({ role: 'user', content: message });
+  noteTurn({ role: 'user', text: message });
 
   state.busy = true;
   ui.send.disabled = true;
@@ -156,6 +164,7 @@ async function sendMessage(text) {
         sessionSeconds: Math.round((Date.now() - state.sessionStart) / 1000),
         // 아이디만 보낸다. 어떤 내용을 말해도 되는지는 서버가 정한다.
         memory_id: state.memory ? state.memory.memory_id : null,
+        session_id: state.sessionId,
       }),
     });
 
@@ -169,6 +178,13 @@ async function sendMessage(text) {
     const data = await res.json();
     state.history.push({ role: 'assistant', content: data.reply });
     saveHistory();
+    noteTurn({
+      role: 'assistant',
+      text: data.reply,
+      response_mode: data.responseMode,
+      asked_question: data.askQuestion,
+      user_reported_emotion: data.userReportedEmotion,
+    });
     state.lastReply = { text: data.reply, emotion: data.emotion, mode: data.mode };
 
     addMessage('bot', data.reply);
@@ -617,7 +633,10 @@ function bindControls() {
 
   ui.clear.addEventListener('click', () => {
     stopSpeaking();
-    stopMemoryTalk();
+    hideKeep();
+    closeSession('USER');
+    showMemory(null);
+    ui.memoryPhoto.removeAttribute('src');
     state.history = [];
     state.sessionStart = 0;
     state.waited = false;
@@ -691,6 +710,108 @@ function showMemory(memory) {
   }
 }
 
+/* --- 회기 기록 (문서 11번 SAVE_SESSION) -------------------------
+   사진에 대한 오래 남는 정보(MEMORY)와 매번 생기는 대화 기록(SESSION)은
+   성격이 달라 따로 저장한다. 기록이 실패해도 대화는 끊기지 않게 한다. */
+
+async function startSession(memoryId) {
+  try {
+    const r = await fetch('/api/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memory_id: memoryId, character: state.character }),
+    });
+    if (!r.ok) return;
+    const out = await r.json();
+    state.sessionId = out.session.session_id;
+  } catch {
+    // 기록을 못 남겨도 어르신과의 대화는 계속되어야 한다
+  }
+}
+
+async function noteTurn(turn) {
+  if (!state.sessionId) return;
+  try {
+    await fetch(`/api/sessions/${state.sessionId}/turns`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(turn),
+    });
+  } catch { /* 기록 실패는 조용히 넘어간다 */ }
+}
+
+async function closeSession(endedBy) {
+  if (!state.sessionId) return;
+  const id = state.sessionId;
+  state.sessionId = null;
+  try {
+    await fetch(`/api/sessions/${id}/close`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ended_by: endedBy || 'USER' }),
+    });
+  } catch { /* 무시 */ }
+}
+
+/* --- 기억으로 남길지 여쭙기 (문서 9번 VERIFY_NEW_INFORMATION) ----
+   음성인식이 잘못 알아듣거나 모델이 잘못 새겨들은 내용이 사실로 굳으면
+   다음 대화부터 초롱이가 그 틀린 이야기를 사실처럼 말하게 된다.
+   그래서 저장 전에 어르신께 보여 드리고 여쭙는다. */
+
+const FIELD_NAME = {
+  title: '무슨 일', people: '함께한 사람', place: '장소',
+  when_text: '언제쯤', description: '이야기',
+};
+
+function hideKeep() {
+  ui.keep.hidden = true;
+  ui.keepList.innerHTML = '';
+  state.pending = [];
+  state.pendingMemoryId = null;
+}
+
+/** 아직 확인 못 받은 이야기가 있으면 보여 준다. 있으면 true */
+async function askToKeep(memoryId, sessionId) {
+  if (!memoryId) return false;
+  let claims = [];
+  try {
+    const q = sessionId ? '?session=' + encodeURIComponent(sessionId) : '';
+    const r = await fetch(`/api/memories/${memoryId}/pending${q}`);
+    if (!r.ok) return false;
+    claims = (await r.json()).claims || [];
+  } catch {
+    return false;
+  }
+  if (claims.length === 0) return false;
+
+  state.pending = claims;
+  state.pendingMemoryId = memoryId;
+  ui.keepList.innerHTML = '';
+  for (const c of claims) {
+    const li = document.createElement('li');
+    const value = Array.isArray(c.value) ? c.value.join(', ') : c.value;
+    li.textContent = `${FIELD_NAME[c.field] || c.field} — ${value}`;
+    ui.keepList.appendChild(li);
+  }
+  ui.keep.hidden = false;
+  return true;
+}
+
+/** 어르신의 뜻을 서버에 전한다. 남기지 않겠다 하셔도 지우지는 않는다. */
+async function decideKeep(keep) {
+  const memoryId = state.pendingMemoryId;
+  const ids = state.pending.map((c) => c.claim_id);
+  hideKeep();
+  if (!memoryId) return;
+  try {
+    await fetch(`/api/memories/${memoryId}/pending/decide`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keep, claim_ids: ids }),
+    });
+  } catch { /* 무시 */ }
+  toast(keep ? '기억으로 남겨 두었어요' : '남기지 않았어요');
+}
+
+ui.keepYes.addEventListener('click', () => decideKeep(true));
+ui.keepNo.addEventListener('click', () => decideKeep(false));
+
 /** 다음에 볼 사진을 서버에서 받아 온다 (선택 순서는 서버가 정한다) */
 async function pickMemory() {
   const params = new URLSearchParams();
@@ -720,8 +841,10 @@ async function startMemoryTalk() {
     return;
   }
 
+  hideKeep();
   showMemory(memory);
   if (!state.sessionStart) state.sessionStart = Date.now();
+  await startSession(memory.memory_id);
 
   const opening = memory.title
     ? `${memory.title} 사진을 함께 볼까요? 이 사진을 보면 어떤 일이 가장 먼저 떠오르세요?`
@@ -738,7 +861,11 @@ async function startMemoryTalk() {
   speak(opening, 'happy', 'talk');
 }
 
-function stopMemoryTalk() {
+async function stopMemoryTalk() {
+  const memoryId = state.memory ? state.memory.memory_id : null;
+  const asked = await askToKeep(memoryId, state.sessionId);
+  await closeSession('USER');
+  if (!asked) hideKeep();
   showMemory(null);
   ui.memoryPhoto.removeAttribute('src');
 }
@@ -753,6 +880,11 @@ ui.closePhoto.addEventListener('click', stopMemoryTalk);
 ui.nextPhoto.addEventListener('click', async () => {
   const memory = await pickMemory();
   if (!memory) { toast('더 볼 사진이 없어요.'); return; }
+
+  // 지금 사진에서 들은 이야기를 먼저 여쭙고 넘어간다
+  await askToKeep(state.memory ? state.memory.memory_id : null, state.sessionId);
+  await closeSession('USER');
+  await startSession(memory.memory_id);
   showMemory(memory);
 
   const line = memory.title

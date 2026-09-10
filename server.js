@@ -323,6 +323,16 @@ function buildMemoryContext(facts) {
   lines.push('- 날짜나 사람 이름을 맞히게 하지 마십시오. 기억력 검사가 되어서는 안 됩니다.');
   lines.push('  ("이게 몇 년도인지 기억나세요?" 같은 물음은 하지 않습니다)');
   lines.push('- 어르신이 적힌 것과 다르게 말씀하셔도 바로잡지 마십시오. 어르신 말씀을 따릅니다.');
+  lines.push('');
+  lines.push('[새로 들은 이야기 적어 두기]');
+  lines.push('- 어르신이 위에 적혀 있지 않은 사람 · 장소 · 시기 · 일을 말씀하시면');
+  lines.push('  extracted_facts 에 담습니다. 어르신이 직접 말씀하신 것만 담습니다.');
+  lines.push('- 짐작하거나 사진을 보고 지어낸 것은 절대 담지 않습니다.');
+  lines.push('- 담았다고 해서 그 자리에서 "기억해 둘게요" 같은 말을 하지 않습니다.');
+  lines.push('  저장해도 되는지는 나중에 따로 여쭙습니다.');
+  lines.push('- 어르신이 직접 말씀하신 감정은 user_reported_emotion 에 담습니다.');
+  lines.push('  "참 뿌듯했지" → 뿌듯함, "속상했어" → 속상함 처럼 말씀하신 그대로 담습니다.');
+  lines.push('  표정이나 사진을 보고 짐작한 감정은 담지 않습니다.');
   return lines.join('\n');
 }
 
@@ -386,7 +396,8 @@ const REPLY_SCHEMA = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['reply', 'user_state', 'response_mode', 'ask_question', 'emotion', 'gesture', 'mode'],
+    required: ['reply', 'user_state', 'response_mode', 'ask_question',
+               'emotion', 'gesture', 'mode', 'extracted_facts', 'user_reported_emotion'],
     properties: {
       reply: { type: 'string', description: '어르신께 드릴 말. 절대 비워 두지 않는다.' },
       user_state: {
@@ -410,6 +421,28 @@ const REPLY_SCHEMA = {
         enum: ['idle', 'nod', 'flap', 'bounce', 'tilt', 'cheer', 'droop'],
       },
       mode: { type: 'string', enum: ['talk', 'story'] },
+
+      /* 어르신이 이번 차례에 새로 말씀하신 사실. 사진 이야기 중일 때만 채운다.
+         여기 담긴 값은 아직 사실이 아니다. 어르신께 여쭤 확인을 받아야 사실이 된다. */
+      extracted_facts: {
+        type: 'array',
+        description: '어르신이 직접 말씀하신 것만. 짐작하거나 사진을 보고 지어낸 것은 넣지 않는다.',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['field', 'value'],
+          properties: {
+            field: {
+              type: 'string',
+              enum: ['title', 'people', 'place', 'when_text', 'description'],
+            },
+            value: { type: 'string' },
+          },
+        },
+      },
+
+      /* 어르신이 직접 말씀하신 감정만. 표정이나 사진을 보고 짐작한 것은 넣지 않는다. */
+      user_reported_emotion: { type: 'array', items: { type: 'string' } },
     },
   },
 };
@@ -564,6 +597,30 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
+    /* 어르신이 새로 말씀하신 내용을 쌓아 둔다.
+       확인 전까지는 UNVERIFIED 라 프롬프트에도 들어가지 않는다.
+       (문서 9번: 모델 추론은 확정 저장하지 않는다) */
+    let pending = [];
+    if (req.body?.memory_id && Array.isArray(parsed.extracted_facts)) {
+      const sessionId = req.body?.session_id ? String(req.body.session_id) : null;
+      for (const f of parsed.extracted_facts.slice(0, 4)) {
+        if (!f || !f.field || !String(f.value || '').trim()) continue;
+        try {
+          const claim = await memories.addClaim(String(req.body.memory_id), {
+            field: f.field,
+            value: f.field === 'people'
+              ? String(f.value).split(/[,·]/).map((x) => x.trim()).filter(Boolean)
+              : String(f.value).trim(),
+            source: 'USER',
+            session_id: sessionId,
+          });
+          if (claim) pending.push(claim);
+        } catch (err) {
+          console.warn('[chat] 새 이야기를 남기지 못했습니다', err);
+        }
+      }
+    }
+
     res.json({
       reply,
       emotion: String(parsed.emotion || 'neutral'),
@@ -572,6 +629,10 @@ app.post('/api/chat', async (req, res) => {
       userState: String(parsed.user_state || ''),
       responseMode: String(parsed.response_mode || ''),
       askQuestion: hasQuestion(reply),
+      userReportedEmotion: Array.isArray(parsed.user_reported_emotion)
+        ? parsed.user_reported_emotion.filter((e) => typeof e === 'string' && e.trim()).slice(0, 4)
+        : [],
+      pendingClaims: pending,
     });
   } catch (err) {
     console.error('[chat] failed', err);
@@ -855,6 +916,52 @@ app.delete('/api/memories/:id/photo', async (req, res) => {
   } catch (err) {
     console.error('[photo] delete', err);
     fail(res, 500, '사진을 지우지 못했어요.');
+  }
+});
+
+/**
+ * 아직 확인받지 못한 이야기들 (기억으로 남길지 여쭐 때 쓴다).
+ *
+ * session 을 주면 그 회기에 들은 것만 준다. 지난번에 답을 못 받은 이야기까지
+ * 한꺼번에 여쭈면, 오늘 하지도 않은 말을 왜 묻느냐가 되고 서로 어긋나는 값이
+ * 나란히 확정될 수 있다. 남은 것은 보호자가 따로 살펴야 한다.
+ */
+app.get('/api/memories/:id/pending', async (req, res) => {
+  const memory = await memories.get(req.params.id);
+  if (!memory) return fail(res, 404, '그런 기억이 없어요.');
+
+  const sessionId = req.query?.session ? String(req.query.session) : null;
+  res.json({
+    claims: memory.claims.filter((c) =>
+      c.status === 'UNVERIFIED' && (!sessionId || c.session_id === sessionId)),
+  });
+});
+
+/**
+ * 어르신께 여쭤본 결과를 한 번에 반영한다 (문서 9번).
+ * 남기지 않겠다고 하시면 지우지 않고 UNVERIFIED 로 그냥 둔다.
+ * 지워 버리면 나중에 보호자가 확인할 길이 없어진다.
+ */
+app.post('/api/memories/:id/pending/decide', async (req, res) => {
+  try {
+    const memory = await memories.get(req.params.id);
+    if (!memory) return fail(res, 404, '그런 기억이 없어요.');
+
+    const ids = Array.isArray(req.body?.claim_ids) ? req.body.claim_ids : [];
+    if (req.body?.keep !== true) {
+      return res.json({ kept: 0, memory });   // 그냥 둔다
+    }
+
+    let kept = 0;
+    let latest = memory;
+    for (const cid of ids) {
+      const out = await memories.verifyClaim(req.params.id, String(cid), 'VERIFIED');
+      if (out) { latest = out; kept += 1; }
+    }
+    res.json({ kept, memory: latest });
+  } catch (err) {
+    console.error('[memories] decide', err);
+    fail(res, 500, '기억을 남기지 못했어요.');
   }
 });
 
