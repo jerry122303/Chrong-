@@ -26,6 +26,8 @@ const ui = {
   keep: $('keep'), keepList: $('keep-list'),
   keepYes: $('btn-keep-yes'), keepNo: $('btn-keep-no'),
   brandMark: document.querySelector('.brand-mark'),
+  attach: $('btn-attach'), filePhoto: $('file-photo'),
+  composer: document.querySelector('.composer'),
 };
 
 const greetingFor = (id) =>
@@ -105,6 +107,36 @@ function addMessage(who, text) {
   return div;
 }
 
+/**
+ * 올리신 사진을 대화 기록에 남긴다.
+ * 사진이 서버에 올라가기 전에도 화면에는 바로 보여 드린다. 기다리는 동안
+ * 아무 일도 일어나지 않으면 잘못 누르신 줄 아신다.
+ */
+function addPhotoMessage(src) {
+  const div = document.createElement('div');
+  div.className = 'msg me has-photo';
+
+  const name = document.createElement('b');
+  name.className = 'msg-name';
+  name.textContent = '나';
+  div.appendChild(name);
+
+  const img = document.createElement('img');
+  img.className = 'msg-photo';
+  img.alt = '올린 사진';
+  img.src = src;
+  div.appendChild(img);
+
+  const note = document.createElement('span');
+  note.className = 'msg-photo-note';
+  note.textContent = '사진을 보여 드렸어요';
+  div.appendChild(note);
+
+  ui.log.appendChild(div);
+  ui.log.scrollTop = ui.log.scrollHeight;
+  return div;
+}
+
 function showTyping() {
   const div = document.createElement('div');
   div.className = 'msg bot typing';
@@ -135,6 +167,38 @@ function loadHistory() {
 /* ==================================================================
  *  대화
  * ================================================================== */
+
+/**
+ * 초롱이의 대답 한 번을 처리한다 — 기록에 남기고, 표정을 바꾸고, 소리 내어 말한다.
+ * 어르신 말씀에 대한 대답이든 사진을 보고 여는 말이든 하는 일이 같아 한 곳에 모았다.
+ */
+async function applyReply(data) {
+  state.history.push({ role: 'assistant', content: data.reply });
+  saveHistory();
+  noteTurn({
+    role: 'assistant',
+    text: data.reply,
+    response_mode: data.responseMode,
+    asked_question: data.askQuestion,
+    user_reported_emotion: data.userReportedEmotion,
+  });
+
+  /* 오 분이 지나 초롱이가 마무리를 여쭈었으면, 그 말이 끝난 뒤 사진을 접는다.
+     여쭙기만 하고 그대로 두면 어르신이 답하실 때까지 사진이 계속 떠 있고
+     오늘 들은 이야기도 확인받지 못한 채 남는다. */
+  if (state.memory && data.shouldClose) {
+    closingAfterSpeech = true;
+  }
+  state.lastReply = { text: data.reply, emotion: data.emotion, mode: data.mode };
+
+  addMessage('bot', data.reply);
+  ui.subtitle.textContent = data.reply;
+
+  avatar.setEmotion(data.emotion);
+  avatar.playGesture(data.gesture);
+
+  await speak(data.reply, data.emotion, data.mode);
+}
 
 async function sendMessage(text) {
   const message = String(text || '').trim();
@@ -176,32 +240,7 @@ async function sendMessage(text) {
       throw new Error(err.message || '대답을 받지 못했어요.');
     }
 
-    const data = await res.json();
-    state.history.push({ role: 'assistant', content: data.reply });
-    saveHistory();
-    noteTurn({
-      role: 'assistant',
-      text: data.reply,
-      response_mode: data.responseMode,
-      asked_question: data.askQuestion,
-      user_reported_emotion: data.userReportedEmotion,
-    });
-
-    /* 오 분이 지나 초롱이가 마무리를 여쭈었으면, 그 말이 끝난 뒤 사진을 접는다.
-       여쭙기만 하고 그대로 두면 어르신이 답하실 때까지 사진이 계속 떠 있고
-       오늘 들은 이야기도 확인받지 못한 채 남는다. */
-    if (state.memory && data.shouldClose) {
-      closingAfterSpeech = true;
-    }
-    state.lastReply = { text: data.reply, emotion: data.emotion, mode: data.mode };
-
-    addMessage('bot', data.reply);
-    ui.subtitle.textContent = data.reply;
-
-    avatar.setEmotion(data.emotion);
-    avatar.playGesture(data.gesture);
-
-    await speak(data.reply, data.emotion, data.mode);
+    await applyReply(await res.json());
   } catch (err) {
     typing.remove();
     const msg = err.message || '연결에 문제가 생겼어요.';
@@ -942,6 +981,169 @@ function scheduleAutoClose() {
     });
   }, 15000);
 }
+
+/* ==================================================================
+ *  사진 올려서 바로 이야기하기
+ *
+ *  보호자 화면에 미리 등록해 두지 않아도, 대화 중에 사진 한 장을 올리면
+ *  그 자리에서 초롱이 옆에 뜨고 그 사진 이야기가 시작된다.
+ * ================================================================== */
+
+/**
+ * 휴대폰 사진은 사천 화소가 넘어 그대로 올리면 느리다.
+ * 화면에 보일 만한 크기(긴 변 1600)까지 줄여 보낸다.
+ * 줄인 쪽이 더 크면 원본을 쓴다 (작은 png 등).
+ */
+async function shrinkPhoto(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const max = 1600;
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    if (bitmap.close) bitmap.close();
+
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.86));
+    return blob && blob.size < file.size ? blob : file;
+  } catch {
+    return file;   // 못 줄이면 원본을 보낸다. 크기는 서버가 다시 본다.
+  }
+}
+
+/** 사진을 보고 이야기의 문을 여는 말을 받아 온다 */
+async function askAboutPhoto() {
+  const typing = showTyping();
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: state.history,
+        character: state.character,
+        sessionSeconds: Math.round((Date.now() - state.sessionStart) / 1000),
+        memory_id: state.memory ? state.memory.memory_id : null,
+        session_id: state.sessionId,
+        // 사진을 방금 올리신 차례임을 알린다 (서버가 사진을 모델에게 보여 준다)
+        photo_opening: true,
+      }),
+    });
+    typing.remove();
+    if (!res.ok) throw new Error('opening');
+    await applyReply(await res.json());
+  } catch {
+    typing.remove();
+    /* 대답을 못 받아도 사진은 이미 떠 있다. 아무 말 없이 두면 어르신이
+       무슨 말을 하셔야 할지 모르시므로, 준비된 말로 문을 연다. */
+    const line = state.memory ? openingLineFor(state.memory) : '사진을 함께 볼게요.';
+    state.history.push({ role: 'assistant', content: line });
+    saveHistory();
+    state.lastReply = { text: line, emotion: 'happy', mode: 'talk' };
+    addMessage('bot', line);
+    ui.subtitle.textContent = line;
+    avatar.setEmotion('happy');
+    avatar.playGesture('nod');
+    await speak(line, 'happy', 'talk');
+  }
+}
+
+/** 고르신 사진 한 장을 올리고, 그 사진 이야기를 시작한다 */
+async function attachPhoto(file) {
+  if (!file) return;
+  if (!/^image\//.test(file.type)) {
+    toast('사진 파일만 올릴 수 있어요.');
+    return;
+  }
+  if (state.busy || state.listening) {
+    toast('잠깐만요, 지금은 이야기하는 중이에요.');
+    return;
+  }
+
+  stopSpeaking();
+  clearTimeout(waitTimer);
+  state.waited = false;
+  state.busy = true;
+  ui.attach.disabled = true;
+  ui.send.disabled = true;
+  setStatus('thinking', '사진을 받는 중이에요');
+
+  // 올라가기를 기다리지 않고 화면에는 먼저 보여 드린다
+  const localUrl = URL.createObjectURL(file);
+  const bubble = addPhotoMessage(localUrl);
+
+  try {
+    const small = await shrinkPhoto(file);
+    const fd = new FormData();
+    fd.append('photo', small, 'photo.jpg');
+
+    const r = await fetch('/api/memories/upload', { method: 'POST', body: fd });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok || !out.memory) throw new Error(out.message || '사진을 올리지 못했어요.');
+
+    // 보던 사진이 있으면 오늘 들은 이야기를 먼저 여쭙고 그 회기를 닫는다
+    if (state.memory) {
+      await askToKeep(state.memory.memory_id, state.sessionId);
+      await closeSession('USER');
+    }
+
+    // 이제부터는 서버가 가진 사진을 본다 (임시 주소를 곧 버리기 때문)
+    bubble.querySelector('.msg-photo').src =
+      '/api/memories/' + out.memory.memory_id + '/photo';
+
+    if (!state.sessionStart) state.sessionStart = Date.now();
+    showMemory(out.memory);
+    await startSession(out.memory.memory_id);
+    scheduleAutoClose();
+
+    /* 사진을 보여 드렸다는 사실을 대화 기록에도 남긴다.
+       이 자리에 사진이 붙어 모델에게 전해진다. */
+    const shown = '(사진을 한 장 보여 드렸어요)';
+    state.history.push({ role: 'user', content: shown });
+    saveHistory();
+    noteTurn({ role: 'user', text: shown });
+
+    setStatus('thinking', `${subject(charName())} 사진을 보고 있어요`);
+    await askAboutPhoto();
+  } catch (err) {
+    bubble.remove();
+    toast(err.message || '사진을 올리지 못했어요.');
+    setStatus('idle', '말씀해 주세요');
+  } finally {
+    URL.revokeObjectURL(localUrl);
+    state.busy = false;
+    ui.attach.disabled = false;
+    ui.send.disabled = false;
+    ui.filePhoto.value = '';   // 같은 사진을 다시 골라도 열리게
+  }
+}
+
+ui.attach.addEventListener('click', () => ui.filePhoto.click());
+ui.filePhoto.addEventListener('change', (e) => attachPhoto(e.target.files[0]));
+
+/* 끌어다 놓기 — 컴퓨터에서 쓰실 때 편하다 */
+['dragenter', 'dragover'].forEach((ev) =>
+  ui.composer.addEventListener(ev, (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    ui.composer.classList.add('dropping');
+  }));
+['dragleave', 'drop'].forEach((ev) =>
+  ui.composer.addEventListener(ev, () => ui.composer.classList.remove('dropping')));
+ui.composer.addEventListener('drop', (e) => {
+  if (!e.dataTransfer?.files?.length) return;
+  e.preventDefault();
+  attachPhoto(e.dataTransfer.files[0]);
+});
+
+/* 붙여넣기 — 사진을 복사해 오신 경우 */
+document.addEventListener('paste', (e) => {
+  const item = [...(e.clipboardData?.items || [])].find((x) => x.type.startsWith('image/'));
+  if (item) attachPhoto(item.getAsFile());
+});
 
 /**
  * 사진 이야기를 시작한다.

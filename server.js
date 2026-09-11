@@ -21,6 +21,14 @@ const TTS_VOICE = process.env.TTS_VOICE || 'nova';
 const VOICE_PITCH = Math.min(1.35, Math.max(1, Number(process.env.VOICE_PITCH) || 1.16));
 const STT_MODEL = process.env.STT_MODEL || 'whisper-1';
 
+/* 어르신이 올리신 사진을 모델에게도 보여 줄지.
+   보여 주면 "바닷가에 계시네요" 처럼 사진을 보고 이야기를 열 수 있다.
+   다만 사진을 보고 사람이 누구인지 언제인지 짐작하는 것은 아래 규칙으로 막는다.
+   detail 은 low 면 512 화소로 줄여 보므로 값싸고 빠르다. 이야기를 여는 데는 넉넉하다. */
+const VISION = process.env.PHOTO_VISION !== 'false';
+const VISION_DETAIL = ['low', 'high', 'auto'].includes(process.env.VISION_DETAIL)
+  ? process.env.VISION_DETAIL : 'low';
+
 /* ------------------------------------------------------------------ *
  * 회상 대화 저장소 (문서 11번 — MEMORY 와 SESSION 을 갈라 둔다)
  *
@@ -326,7 +334,7 @@ function questionBudget(history) {
  * 확인된 항목만 넘긴다. 보호자나 어르신이 확인해 주지 않은 값은
  * 아무리 그럴듯해도 넣지 않는다. 넣는 순간 모델이 그것을 사실로 말한다.
  */
-function buildMemoryContext(facts, kind = 'PHOTO') {
+function buildMemoryContext(facts, kind = 'PHOTO', canSee = false) {
   if (!facts || Object.keys(facts).length === 0) return '';
 
   /* 주제는 어르신 개인의 사실이 아니라 이야깃거리다. 사진처럼 '이 사진에는'
@@ -357,7 +365,9 @@ function buildMemoryContext(facts, kind = 'PHOTO') {
   }
   lines.push('');
   lines.push('- 여기 적힌 것만 사실로 말하십시오. 적혀 있지 않은 사람 · 장소 · 날짜 · 사건을');
-  lines.push('  지어내지 마십시오. 사진을 보고 짐작해서 말하지도 마십시오.');
+  lines.push(canSee
+    ? '  지어내지 마십시오. 사진에서 본 것을 사실처럼 단정하지도 마십시오.'
+    : '  지어내지 마십시오. 사진을 보고 짐작해서 말하지도 마십시오.');
   lines.push('- 날짜나 사람 이름을 맞히게 하지 마십시오. 기억력 검사가 되어서는 안 됩니다.');
   lines.push('  ("이게 몇 년도인지 기억나세요?" 같은 물음은 하지 않습니다)');
   lines.push('- 어르신이 적힌 것과 다르게 말씀하셔도 바로잡지 마십시오. 어르신 말씀을 따릅니다.');
@@ -374,9 +384,51 @@ function buildMemoryContext(facts, kind = 'PHOTO') {
   return lines.join('\n');
 }
 
+/**
+ * 사진을 직접 보고 이야기할 때의 규칙.
+ *
+ * 사진이 보이면 모델은 곧장 사람을 식별하려 든다. "따님이 참 고우시네요" 처럼.
+ * 그런데 그게 딸인지 며느리인지 이웃인지 사진만 보고는 알 수 없고,
+ * 틀리면 어르신은 초롱이가 제 가족도 못 알아본다고 느끼신다.
+ *
+ * 그래서 눈에 보이는 것(장면 · 사물 · 계절 · 분위기)까지만 말하게 하고,
+ * 누구인지 · 언제인지 · 어디인지는 어르신이 말씀해 주실 때까지 기다리게 한다.
+ */
+function buildVisionRules() {
+  return ['', '[사진을 보고 말할 때]',
+    '- 지금 이 사진을 당신도 함께 보고 있습니다. 눈에 보이는 것은 말해도 됩니다.',
+    '  장면, 물건, 계절, 날씨, 분위기 정도입니다.',
+    '- 사람이 누구인지 짐작하지 마십시오. "따님이시군요", "손주분이네요" 같은 말은',
+    '  하지 않습니다. 어르신이 먼저 말씀하시기 전에는 "옆에 계신 분" 처럼 부릅니다.',
+    '- 나이, 관계, 연도, 지명을 사진만 보고 말하지 마십시오.',
+    '- 글씨가 보여도 읽어서 사실처럼 말하지 마십시오.',
+    '- 사진 이야기는 한 문장이면 넉넉합니다. 보이는 것을 늘어놓지 마십시오.',
+    '  당신이 설명하는 자리가 아니라 어르신이 이야기하시는 자리입니다.',
+    '- 어르신이 사진에 대해 말씀하시는 내용이 당신 눈에 보이는 것과 달라도',
+    '  바로잡지 마십시오. 어르신 말씀을 따릅니다.',
+    '- 사진 속 사람의 겉모습을 평가하지 마십시오.',
+  ].join('\n');
+}
+
 /** 이번 차례에만 적용되는 제한을 문장으로 만들어 프롬프트 끝에 붙인다 */
-function buildTurnRules(budget, mayAsk, sessionSeconds) {
+function buildTurnRules(budget, mayAsk, sessionSeconds, photoOpening = false, canSee = false) {
   const lines = ['', '[이번 차례의 제한 — 다른 어떤 규칙보다 우선합니다]'];
+
+  /* 어르신이 방금 사진을 보여 주셨다. 문서 4번대로 이때 한 번만 개방형 질문을
+     던져 이야기의 문을 연다. 지난 차례에 질문을 했더라도 이 한 번은 한다. */
+  if (photoOpening) {
+    lines.push('- 어르신이 방금 이 사진을 보여 주셨습니다. 사진을 받아 주는 말로 시작하십시오.');
+    lines.push(canSee
+      ? '- 사진에서 눈에 보이는 것을 한 문장으로만 짧게 말한 뒤,'
+      : '- 사진에 무엇이 있는지는 당신에게 보이지 않습니다. 무엇이 보인다고 말하지 마십시오.');
+    lines.push(canSee
+      ? '  정답이 없는 물음 하나로 이야기의 문을 여십시오. 물음은 하나만 합니다.'
+      : '- 정답이 없는 물음 하나로 이야기의 문을 여십시오. 물음은 하나만 합니다.');
+    lines.push('  ("어떤 날이었어요?", "무슨 일이 가장 먼저 떠오르세요?" 처럼)');
+    lines.push('- 날짜나 사람 이름을 맞히게 하는 물음은 하지 마십시오.');
+    lines.push('- 두 문장에서 세 문장으로 짧게 말하십시오.');
+    return lines.join('\n');
+  }
 
   lines.push(budget.lastWasQuestion
     ? '- 직전 차례에 이미 질문을 했습니다.'
@@ -537,10 +589,18 @@ app.post('/api/chat', async (req, res) => {
      화면이 보내 주는 값을 그대로 쓰면, 확인되지 않은 내용을 사실인 양
      프롬프트에 밀어 넣을 수 있다. 그래서 아이디만 받는다. */
   let memoryContext = '';
+  let photoUrl = null;        // 모델에게 함께 보여 줄 사진
+  let hasPhoto = false;       // 사진이 걸려 있는가 (모델이 보는지와는 별개)
   if (req.body?.memory_id) {
     try {
       const memory = await memories.get(String(req.body.memory_id));
-      if (memory) memoryContext = buildMemoryContext(memories.facts(memory), memory.kind);
+      if (memory) {
+        /* 사진이 있으면 모델도 함께 본다. 이야깃거리(THEME)는 사진이 없다. */
+        hasPhoto = memory.kind !== 'THEME' && Boolean(memory.photo?.file);
+        if (VISION && hasPhoto) photoUrl = await photos.dataUrl(memory.photo.file);
+        memoryContext = buildMemoryContext(memories.facts(memory), memory.kind, Boolean(photoUrl));
+        if (photoUrl) memoryContext += buildVisionRules();
+      }
     } catch (err) {
       console.warn('[chat] 사진 정보를 읽지 못했습니다', err);
     }
@@ -555,21 +615,44 @@ app.post('/api/chat', async (req, res) => {
   /* 회기가 오 분을 넘으면 마무리를 여쭈어야 하므로, 회상 질문 예산과 무관하게 물을 수 있다
      (문서: 종료 확인은 회상 질문 예산과 별도로 계산한다) */
   const closing = sessionSeconds >= SESSION_SECONDS;
-  const mayAsk = closing || (budget.left > 0 && !budget.lastWasQuestion);
+  /* 사진을 방금 올리신 차례. 문서 4번의 '개방형 질문 하나'라 예산과 별도로 묻는다.
+     모델이 사진을 보든 못 보든 문은 열어야 하므로 VISION 과 무관하게 잡는다. */
+  const photoOpening = req.body?.photo_opening === true && hasPhoto;
+  const mayAsk = photoOpening || closing || (budget.left > 0 && !budget.lastWasQuestion);
+
+  const messages = [
+    {
+      role: 'system',
+      content: buildSystemPrompt(
+        charId,
+        buildTurnRules(budget, mayAsk, sessionSeconds, photoOpening, Boolean(photoUrl)),
+        memoryContext),
+    },
+    ...trimmed,
+  ];
+
+  /* 사진을 모델의 눈앞에 붙인다.
+     방금 올리신 차례에는 아직 어르신 말씀이 없으므로 사진만 담은 차례를 만들어 넣고,
+     그 뒤로는 어르신이 하신 말씀에 사진을 같이 얹는다. 그래야 대화 내내 사진을 본다. */
+  if (photoUrl) {
+    const image = { type: 'image_url', image_url: { url: photoUrl, detail: VISION_DETAIL } };
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'user') {
+      messages.push({
+        role: 'user',
+        content: [{ type: 'text', text: '(어르신이 방금 이 사진을 보여 주셨습니다.)' }, image],
+      });
+    } else {
+      last.content = [{ type: 'text', text: last.content }, image];
+    }
+  }
 
   const payload = {
     model: CHAT_MODEL,
     temperature: 0.8,
     max_tokens: 900,
     response_format: { type: 'json_schema', json_schema: REPLY_SCHEMA },
-    messages: [
-      {
-        role: 'system',
-        content: buildSystemPrompt(
-          charId, buildTurnRules(budget, mayAsk, sessionSeconds), memoryContext),
-      },
-      ...trimmed,
-    ],
+    messages,
   };
 
   try {
@@ -624,8 +707,11 @@ app.post('/api/chat', async (req, res) => {
        그 밖에는 질문 예산을 코드로 한 번 더 지킨다. */
     /* 선택 제공과 안전 안내의 물음은 회상 질문이 아니므로 예산에서 빼지 않는다.
        여기서 걷어내면 어르신이 대화를 그만둘 길이 막힌다. */
+    /* 사진을 여는 물음도 마찬가지다. 여기서 걷어내면 사진만 띄워 놓고
+       아무것도 여쭙지 않아 어르신이 무슨 말을 하셔야 할지 모르신다. */
     const exempt = parsed.response_mode === 'OFFER_CHOICE'
-                || parsed.response_mode === 'SAFETY_FLOW';
+                || parsed.response_mode === 'SAFETY_FLOW'
+                || photoOpening;
 
     /* 아픔 이야기도 마찬가지다. "언제부터 그러셨어요?"는 기억력 검사가 아니라
        걱정에서 나오는 물음이다. 다만 캐묻는 인상이 들지 않게 하나까지만 남긴다. */
@@ -855,6 +941,43 @@ app.post('/api/memories', async (req, res) => {
   }
 });
 
+/**
+ * 대화 화면에서 사진 한 장을 바로 올린다 (어르신이나 가족이 직접).
+ *
+ * 보호자 화면처럼 등록과 사진 올리기를 두 번 나눠 부르지 않는다.
+ * 둘로 나누면 사진이 거부당했을 때 빈 기억만 남아 목록에 쌓인다.
+ * 여기서는 사진이 통과한 뒤에야 기억을 만든다.
+ */
+app.post('/api/memories/upload', photoUpload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) return fail(res, 400, '사진 파일이 없어요.');
+
+    let saved;
+    try {
+      saved = await photos.save(req.file.buffer);
+    } catch (err) {
+      return fail(res, 415, err.message);
+    }
+
+    /* 어르신이 직접 보여 주신 사진이라 감춤이나 확인 대기로 두지 않는다.
+       제목은 적으실 수도 있고 안 적으실 수도 있다. 적으신 것만 확인된 것으로 둔다. */
+    const title = String(req.body?.title || '').trim().slice(0, 80);
+    const memory = await memories.create({
+      owner_id: owner(req),
+      kind: 'PHOTO',
+      title,
+      photo: { file: saved.file },
+      verification_status: 'VERIFIED',
+      verified_fields: title ? ['title'] : [],
+    });
+
+    res.status(201).json({ memory, photo: saved });
+  } catch (err) {
+    console.error('[photo] quick upload', err);
+    fail(res, 500, '사진을 저장하지 못했어요.');
+  }
+});
+
 /** 다음에 이야기할 기억을 고른다 (문서 2번의 순서를 따른다) */
 app.get('/api/memories/next', async (req, res) => {
   try {
@@ -933,7 +1056,7 @@ app.post('/api/memories/:id/photo', photoUpload.single('photo'), async (req, res
 
 /* 사진이 너무 크면 multer 가 던지는 오류를 우리 말로 바꿔 준다.
    그냥 두면 브라우저에 영문 오류 페이지가 그대로 나간다. */
-app.use('/api/memories/:id/photo', (err, req, res, next) => {
+const photoUploadError = (err, req, res, next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {
     return fail(res, 413, '사진이 너무 커요. 팔 메가바이트보다 작은 사진으로 올려 주세요.');
   }
@@ -942,7 +1065,9 @@ app.use('/api/memories/:id/photo', (err, req, res, next) => {
     return fail(res, 400, '사진을 받지 못했어요.');
   }
   next();
-});
+};
+app.use('/api/memories/:id/photo', photoUploadError);
+app.use('/api/memories/upload', photoUploadError);
 
 /**
  * 사진을 보여 준다.

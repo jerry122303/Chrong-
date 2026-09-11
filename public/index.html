@@ -164,6 +164,17 @@
       </button>
 
       <div class="type-box">
+        <!-- 사진 올리기 — 고르시면 바로 초롱이 옆에 뜨고 그 사진 이야기가 시작됩니다 -->
+        <button id="btn-attach" class="btn-attach" type="button"
+                aria-label="사진 올리기" title="사진을 골라 함께 보며 이야기해요">
+          <svg class="attach-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5.5v13"/><path d="M5.5 12h13"/>
+          </svg>
+          <span class="attach-label">사진</span>
+        </button>
+        <input id="file-photo" class="sr-only" type="file"
+               accept="image/jpeg,image/png,image/gif,image/webp" />
+
         <label class="sr-only" for="input">하고 싶은 말</label>
         <input id="input" class="input" type="text" autocomplete="off"
                placeholder="글로 쓰셔도 됩니다" enterkeyhint="send" />
