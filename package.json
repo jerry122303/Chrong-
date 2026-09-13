@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node lib/store.test.mjs && node lib/photo.test.mjs"
+    "test": "node lib/store.test.mjs && node lib/photo.test.mjs && node lib/score.test.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

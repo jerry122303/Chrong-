@@ -4,6 +4,7 @@
  * ===================================================================== */
 
 import { Avatar, CHARACTERS, CHARACTER_LIST, DEFAULT_CHARACTER } from './avatar.js';
+import { readExifFromFile, formatTakenDate } from './exif.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,6 +29,7 @@ const ui = {
   brandMark: document.querySelector('.brand-mark'),
   attach: $('btn-attach'), filePhoto: $('file-photo'),
   composer: document.querySelector('.composer'),
+  rate: $('rate'), rateMeta: $('rate-meta'),
 };
 
 const greetingFor = (id) =>
@@ -1051,7 +1053,12 @@ async function askAboutPhoto() {
   }
 }
 
-/** 고르신 사진 한 장을 올리고, 그 사진 이야기를 시작한다 */
+/**
+ * 고르신 사진 한 장을 올린다.
+ *
+ * 등록 순서 : 사진 올리기 → 파일 정보(찍은 날 · 위치) 저장 → 중요도 고르기 → 등록 끝.
+ * 사진 이야기는 중요도를 고르신 뒤에 연다. "이야기하고 싶지 않아요" 를 고르시면 열지 않는다.
+ */
 async function attachPhoto(file) {
   if (!file) return;
   if (!/^image\//.test(file.type)) {
@@ -1074,10 +1081,19 @@ async function attachPhoto(file) {
   // 올라가기를 기다리지 않고 화면에는 먼저 보여 드린다
   const localUrl = URL.createObjectURL(file);
   const bubble = addPhotoMessage(localUrl);
+  let uploaded = null;
 
   try {
+    /* 줄이면 캔버스를 거치며 찍은 날과 위치가 떨어져 나간다. 원본에서 먼저 읽는다. */
+    const exif = await readExifFromFile(file);
     const small = await shrinkPhoto(file);
+
     const fd = new FormData();
+    if (exif.takenAt) fd.append('taken_at', exif.takenAt);
+    if (exif.gps) {
+      fd.append('gps_lat', String(exif.gps.lat));
+      fd.append('gps_lon', String(exif.gps.lon));
+    }
     fd.append('photo', small, 'photo.jpg');
 
     const r = await fetch('/api/memories/upload', { method: 'POST', body: fd });
@@ -1091,23 +1107,8 @@ async function attachPhoto(file) {
     }
 
     // 이제부터는 서버가 가진 사진을 본다 (임시 주소를 곧 버리기 때문)
-    bubble.querySelector('.msg-photo').src =
-      '/api/memories/' + out.memory.memory_id + '/photo';
-
-    if (!state.sessionStart) state.sessionStart = Date.now();
-    showMemory(out.memory);
-    await startSession(out.memory.memory_id);
-    scheduleAutoClose();
-
-    /* 사진을 보여 드렸다는 사실을 대화 기록에도 남긴다.
-       이 자리에 사진이 붙어 모델에게 전해진다. */
-    const shown = '(사진을 한 장 보여 드렸어요)';
-    state.history.push({ role: 'user', content: shown });
-    saveHistory();
-    noteTurn({ role: 'user', text: shown });
-
-    setStatus('thinking', `${subject(charName())} 사진을 보고 있어요`);
-    await askAboutPhoto();
+    bubble.querySelector('.msg-photo').src = '/api/memories/' + out.memory.memory_id + '/photo';
+    uploaded = { memory: out.memory, exif };
   } catch (err) {
     bubble.remove();
     toast(err.message || '사진을 올리지 못했어요.');
@@ -1119,7 +1120,126 @@ async function attachPhoto(file) {
     ui.send.disabled = false;
     ui.filePhoto.value = '';   // 같은 사진을 다시 골라도 열리게
   }
+
+  if (uploaded) askImportance(uploaded.memory, uploaded.exif);
 }
+
+/* --- 사진을 올리시면 얼마나 소중한 사진인지 여쭙는다 -----------------
+   고르신 별점이 곧 순서가 되지는 않는다. 사진 속 단서 · 찍은 시기 ·
+   최근에 나왔는지와 함께 더해 다음에 보여 드릴 사진을 고른다 (lib/photo-score.js). */
+
+let rating = null;   // 중요도를 여쭙는 중인 사진
+
+/** 사진 파일에서 읽은 것을 한 줄로 */
+function describeMeta(exif) {
+  const bits = [];
+  if (exif?.takenAt) bits.push('찍은 날 ' + formatTakenDate(exif.takenAt));
+  if (exif?.gps) bits.push('찍은 곳 위치 정보');
+  return bits.length ? '사진에서 읽은 정보 — ' + bits.join(' · ') : '';
+}
+
+/* 좁은 화면에서는 입력칸이 화면 아래에 붙어 있어 마지막 선택지가 그 뒤에 가려진다.
+   "이야기하고 싶지 않아요" 가 안 보이면 고를 수 없는 것과 같다.
+   고르는 칸이 입력칸 위로 다 보이도록 한 번 내려 준다. (넓은 화면은 스크롤이 없어 그대로) */
+function revealRate() {
+  // 위치를 읽는 순간 브라우저가 배치를 마치므로 다음 화면을 기다리지 않는다.
+  // (기다리게 두면 탭이 가려져 있는 동안에는 끝내 움직이지 않는다)
+  const box = ui.rate.getBoundingClientRect();
+  const footer = ui.composer.getBoundingClientRect();
+  const visibleBottom = Math.min(window.innerHeight, footer.top) - 12;
+  if (box.bottom > visibleBottom) {
+    window.scrollBy({ top: box.bottom - visibleBottom, behavior: 'smooth' });
+  }
+}
+
+function askImportance(memory, exif) {
+  rating = memory;
+  showMemory(memory);                   // 무엇을 고르시는지 보이게 사진을 크게 띄운다
+  ui.memory.classList.add('rating');
+  ui.stage.classList.add('rating');
+  const meta = describeMeta(exif);
+  ui.rateMeta.textContent = meta;
+  ui.rateMeta.hidden = !meta;
+  ui.rate.hidden = false;
+  revealRate();
+
+  const line = '사진 잘 받았어요. 이 사진이 어르신께 얼마나 소중한지 골라 주세요.';
+  ui.subtitle.textContent = line;
+  addMessage('bot', line);
+  avatar.setEmotion('happy');
+  avatar.playGesture('nod');
+  speak(line, 'happy', 'talk');
+}
+
+function cancelRating() {
+  rating = null;
+  ui.rate.hidden = true;
+  ui.memory.classList.remove('rating');
+  ui.stage.classList.remove('rating');
+}
+
+async function chooseImportance(choice) {
+  const memory = rating;
+  if (!memory) return;
+  cancelRating();
+  stopSpeaking();
+
+  // 고르신 것을 남긴다. 남기지 못해도 대화는 이어 간다.
+  let saved = memory;
+  try {
+    const r = await fetch('/api/memories/' + memory.memory_id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(choice),
+    });
+    if (r.ok) saved = (await r.json()).memory;
+  } catch { /* 무시 */ }
+
+  if (choice.avoid) {
+    // 이야기는 열지 않는다. 사진은 지우지 않고 넣어 둔다 (추천에서만 빠진다).
+    showMemory(null);
+    ui.memoryPhoto.removeAttribute('src');
+    const line = '알겠어요. 이 사진은 잘 넣어 둘게요. 이 사진 이야기는 꺼내지 않을게요.';
+    ui.subtitle.textContent = line;
+    addMessage('bot', line);
+    avatar.setEmotion('neutral');
+    avatar.playGesture('nod');
+    await speak(line, 'neutral', 'talk');
+    return;
+  }
+
+  state.busy = true;
+  ui.attach.disabled = true;
+  ui.send.disabled = true;
+  try {
+    if (!state.sessionStart) state.sessionStart = Date.now();
+    showMemory(saved);
+    await startSession(saved.memory_id);
+    scheduleAutoClose();
+
+    /* 사진을 보여 드렸다는 사실을 대화 기록에도 남긴다.
+       이 자리에 사진이 붙어 모델에게 전해진다. */
+    const shown = '(사진을 한 장 보여 드렸어요)';
+    state.history.push({ role: 'user', content: shown });
+    saveHistory();
+    noteTurn({ role: 'user', text: shown });
+
+    setStatus('thinking', `${subject(charName())} 사진을 보고 있어요`);
+    await askAboutPhoto();
+  } finally {
+    state.busy = false;
+    ui.attach.disabled = false;
+    ui.send.disabled = false;
+  }
+}
+
+ui.rate.addEventListener('click', (e) => {
+  const btn = e.target.closest('.rate-btn');
+  if (!btn) return;
+  chooseImportance(btn.dataset.avoid
+    ? { avoid: true, importance: null }
+    : { avoid: false, importance: Number(btn.dataset.importance) });
+});
 
 ui.attach.addEventListener('click', () => ui.filePhoto.click());
 ui.filePhoto.addEventListener('change', (e) => attachPhoto(e.target.files[0]));
@@ -1185,6 +1305,7 @@ async function startMemoryTalk() {
 
 async function stopMemoryTalk() {
   clearTimeout(closeTimer);
+  cancelRating();   // 중요도를 여쭙던 중이었으면 그만 여쭙는다 (고르지 않은 채로 남는다)
   if (wrappingUp) return;
   wrappingUp = true;
   try {

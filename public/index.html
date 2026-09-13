@@ -116,6 +116,21 @@
         </div>
       </div>
 
+      <!-- 사진을 올리시면 얼마나 소중한 사진인지 여쭙는다. 추천 점수의 한 항목이다 -->
+      <div id="rate" class="rate" hidden role="group" aria-labelledby="rate-q">
+        <p id="rate-q" class="rate-q">이 사진은 나에게 얼마나 중요한 사진인가요?</p>
+        <p id="rate-meta" class="rate-meta" hidden></p>
+        <div class="rate-acts">
+          <button class="rate-btn" type="button" data-importance="1" aria-label="별 하나, 평범한 사진">
+            <span class="rate-stars" aria-hidden="true">★</span>평범한 사진</button>
+          <button class="rate-btn" type="button" data-importance="2" aria-label="별 둘, 소중한 사진">
+            <span class="rate-stars" aria-hidden="true">★★</span>소중한 사진</button>
+          <button class="rate-btn" type="button" data-importance="3" aria-label="별 셋, 매우 소중한 사진">
+            <span class="rate-stars" aria-hidden="true">★★★</span>매우 소중한 사진</button>
+          <button class="rate-btn rate-avoid" type="button" data-avoid="1">이 사진으로 이야기하고 싶지 않아요</button>
+        </div>
+      </div>
+
       <div id="avatar" class="avatar"></div>
 
       <div class="stage-bar">
@@ -164,7 +179,7 @@
       </button>
 
       <div class="type-box">
-        <!-- 사진 올리기 — 고르시면 바로 초롱이 옆에 뜨고 그 사진 이야기가 시작됩니다 -->
+        <!-- 사진 올리기 — 고르시면 초롱이 옆에 뜨고, 얼마나 소중한지 고르시면 그 사진 이야기가 시작됩니다 -->
         <button id="btn-attach" class="btn-attach" type="button"
                 aria-label="사진 올리기" title="사진을 골라 함께 보며 이야기해요">
           <svg class="attach-icon" viewBox="0 0 24 24" aria-hidden="true">

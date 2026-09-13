@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { MemoryStore } from './lib/memory-store.js';
 import { SessionStore } from './lib/session-store.js';
 import { PhotoStore } from './lib/photo-store.js';
+import { ProfileStore } from './lib/profile-store.js';
+import { analyzePhoto } from './lib/photo-analyzer.js';
+import { scorePhoto, SCORE_RULES } from './lib/photo-score.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +31,13 @@ const STT_MODEL = process.env.STT_MODEL || 'whisper-1';
 const VISION = process.env.PHOTO_VISION !== 'false';
 const VISION_DETAIL = ['low', 'high', 'auto'].includes(process.env.VISION_DETAIL)
   ? process.env.VISION_DETAIL : 'low';
+/* 사진을 올릴 때 모델이 한 번 살펴 추천 점수(사람 · 사물 · 장소 · 활동 · 시기)에 쓴다.
+   따로 정하지 않으면 PHOTO_VISION 을 따른다. 사진을 모델에게 보내지 않기로 했다면
+   살펴보기도 함께 꺼져야 하기 때문이다. */
+const ANALYSIS = process.env.PHOTO_ANALYSIS ? process.env.PHOTO_ANALYSIS !== 'false' : VISION;
+// 사람 수를 세야 해서 대화 때보다 자세히 본다. 사진 한 장에 한 번뿐이다.
+const ANALYSIS_DETAIL = ['low', 'high', 'auto'].includes(process.env.ANALYSIS_DETAIL)
+  ? process.env.ANALYSIS_DETAIL : 'high';
 
 /* ------------------------------------------------------------------ *
  * 회상 대화 저장소 (문서 11번 — MEMORY 와 SESSION 을 갈라 둔다)
@@ -43,6 +53,7 @@ const KEEP_TRANSCRIPT = process.env.KEEP_TRANSCRIPT !== 'false';
 const memories = new MemoryStore(DATA_DIR);
 const sessions = new SessionStore(DATA_DIR, { keepTranscript: KEEP_TRANSCRIPT });
 const photos = new PhotoStore(DATA_DIR);
+const profiles = new ProfileStore(DATA_DIR);
 
 /* ------------------------------------------------------------------ *
  * 캐릭터 — 이름 / 성격 / 목소리
@@ -921,10 +932,76 @@ app.post('/api/stt', upload.single('audio'), async (req, res) => {
 const owner = (req) => String(req.query?.owner || req.body?.owner_id || 'default');
 const fail = (res, code, message) => res.status(code).json({ error: 'FAILED', message });
 
+/** 화면으로 보낼 때는 위치 좌표를 빼고 '있음' 만 알린다. 좌표는 서버에만 둔다. */
+const forClient = (m) => (m ? {
+  ...m,
+  meta: { taken_at: m.meta?.taken_at || null, has_gps: Boolean(m.meta?.gps) },
+} : m);
+
+/** 추천 점수에 필요한 것 — 태어나신 해(⑥)와 최근 회기에 나온 기억(⑦⑧, 최신순) */
+async function scoringContext(ownerId) {
+  const [profile, list] = await Promise.all([profiles.get(ownerId), sessions.listFor(ownerId)]);
+  return {
+    birthYear: profile.birth_year,
+    recent: list.filter((x) => x.memory_id).map((x) => x.memory_id),
+  };
+}
+
+/** 사진과 함께 온 파일 정보 (찍은 날 · 위치). 값을 다듬는 것은 records.js 가 한다 */
+function uploadMeta(body = {}) {
+  const has = (v) => v !== undefined && v !== null && v !== '';
+  return {
+    taken_at: body.taken_at || null,
+    gps: has(body.gps_lat) && has(body.gps_lon) ? { lat: body.gps_lat, lon: body.gps_lon } : null,
+  };
+}
+
+const analysisStart = () => ({ status: ANALYSIS && OPENAI_API_KEY ? 'PENDING' : 'SKIPPED' });
+
+/**
+ * 사진을 뒤에서 살펴본다 (추천 점수 ②~⑥).
+ *
+ * 올리신 분을 기다리게 하지 않으려고 응답을 먼저 보내고 여기서 이어 한다.
+ * 그 사이 중요도를 고르셔도 기억 저장소가 쓰기를 줄 세우므로 별점이 사라지지 않는다.
+ * 살펴보는 동안 사진이 바뀌면 옛 사진의 결과는 붙이지 않는다.
+ */
+const analyzing = new Set();
+function analyzeLater(memoryId) {
+  if (!ANALYSIS || !OPENAI_API_KEY) return;
+  (async () => {
+    const memory = await memories.get(memoryId);
+    const file = memory?.photo?.file;
+    if (!file) return;
+    const key = `${memoryId}:${file}`;
+    if (analyzing.has(key)) return;
+    analyzing.add(key);
+
+    const stillSame = async () => (await memories.get(memoryId))?.photo?.file === file;
+    try {
+      const dataUrl = await photos.dataUrl(file);
+      if (!dataUrl) throw new Error('사진이 커서 살펴보지 못했습니다');
+      const analysis = await analyzePhoto({
+        dataUrl, apiKey: OPENAI_API_KEY, base: OPENAI_BASE, model: CHAT_MODEL, detail: ANALYSIS_DETAIL,
+      });
+      if (!(await stillSame())) return;
+      await memories.update(memoryId, { analysis });
+      console.log(`[analyze] ${memoryId} — 사람 ${analysis.people_count} · 사물 ${analysis.objects.length}`
+        + ` · ${analysis.place_type} · ${analysis.activity} · ${analysis.era_estimate}`);
+    } catch (err) {
+      console.warn('[analyze] 사진을 살펴보지 못했습니다', memoryId, err.message);
+      if (await stillSame()) {
+        await memories.update(memoryId, { analysis: { status: 'FAILED', error: err.message } });
+      }
+    } finally {
+      analyzing.delete(key);
+    }
+  })().catch((err) => console.warn('[analyze]', err));
+}
+
 /** 이 어르신의 기억 목록 */
 app.get('/api/memories', async (req, res) => {
   try {
-    res.json({ memories: await memories.listFor(owner(req)) });
+    res.json({ memories: (await memories.listFor(owner(req))).map(forClient) });
   } catch (err) {
     console.error('[memories] list', err);
     fail(res, 500, '기억을 불러오지 못했어요.');
@@ -934,7 +1011,10 @@ app.get('/api/memories', async (req, res) => {
 /** 보호자가 사진과 생애정보를 등록한다 */
 app.post('/api/memories', async (req, res) => {
   try {
-    res.status(201).json({ memory: await memories.create({ ...req.body, owner_id: owner(req) }) });
+    /* 살펴본 결과는 서버만 붙인다. 화면이 보낸 값을 받으면 점수를 마음대로 올릴 수 있다. */
+    const { analysis: _fromClient, ...body } = req.body || {};
+    const memory = await memories.create({ ...body, owner_id: owner(req) });
+    res.status(201).json({ memory: forClient(memory) });
   } catch (err) {
     console.error('[memories] create', err);
     fail(res, 500, '기억을 저장하지 못했어요.');
@@ -969,32 +1049,128 @@ app.post('/api/memories/upload', photoUpload.single('photo'), async (req, res) =
       photo: { file: saved.file },
       verification_status: 'VERIFIED',
       verified_fields: title ? ['title'] : [],
+      // 사진 파일에서 읽은 찍은 날 · 위치 (화면이 사진을 줄이기 전에 읽어 보낸다)
+      meta: uploadMeta(req.body),
+      // 중요도는 보통 올린 뒤에 고르시지만, 함께 보내면 받는다
+      importance: req.body?.importance,
+      avoid: req.body?.avoid === 'true',
+      taken_year: req.body?.taken_year,
+      analysis: analysisStart(),
     });
+    analyzeLater(memory.memory_id);
 
-    res.status(201).json({ memory, photo: saved });
+    res.status(201).json({ memory: forClient(memory), photo: saved });
   } catch (err) {
     console.error('[photo] quick upload', err);
     fail(res, 500, '사진을 저장하지 못했어요.');
   }
 });
 
-/** 다음에 이야기할 기억을 고른다 (문서 2번의 순서를 따른다) */
+/** 다음에 이야기할 기억을 고른다 (사진 추천 점수 순 — lib/photo-score.js) */
 app.get('/api/memories/next', async (req, res) => {
   try {
     // 사진이 없어도 첫날부터 이야기할 수 있게, 이야깃거리를 처음 한 번 심어 둔다
     await memories.seedThemes(owner(req));
 
     const exclude = String(req.query?.exclude || '').split(',').filter(Boolean);
+    const ctx = await scoringContext(owner(req));
     const picked = await memories.selectMemory(owner(req), {
+      ...ctx,
       pickedId: req.query?.picked || undefined,
       excludeIds: exclude,
     });
-    if (!picked) return res.json({ memory: null, facts: null });
-    // 프롬프트에 넣어도 되는 것만 함께 돌려준다 (문서 3번)
-    res.json({ memory: picked, facts: memories.facts(picked) });
+    if (!picked) return res.json({ memory: null, facts: null, score: null });
+    res.json({
+      memory: forClient(picked),
+      // 프롬프트에 넣어도 되는 것만 함께 돌려준다 (문서 3번)
+      facts: memories.facts(picked),
+      // 왜 이 사진이 골라졌는지. 이야깃거리는 점수를 매기지 않는다.
+      score: picked.kind === 'THEME' ? null : scorePhoto(picked, ctx),
+    });
   } catch (err) {
     console.error('[memories] next', err);
     fail(res, 500, '기억을 고르지 못했어요.');
+  }
+});
+
+/**
+ * 추천 순서와 점수 (보호자 화면).
+ * 왜 이 사진이 먼저인지, 왜 빠졌는지를 항목별로 보여 준다.
+ */
+app.get('/api/memories/scores', async (req, res) => {
+  try {
+    const ctx = await scoringContext(owner(req));
+    const ranked = await memories.rank(owner(req), ctx);
+    const next = await memories.selectMemory(owner(req), ctx);
+    res.json({
+      birth_year: ctx.birthYear,
+      next_id: next ? next.memory_id : null,
+      analysis_on: Boolean(ANALYSIS && OPENAI_API_KEY),
+      rules: SCORE_RULES,
+      photos: ranked.map(({ memory, score }) => ({ memory: forClient(memory), score })),
+    });
+  } catch (err) {
+    console.error('[memories] scores', err);
+    fail(res, 500, '점수를 계산하지 못했어요.');
+  }
+});
+
+/**
+ * 사진에 대해 고르신 것을 바꾼다 — 중요도 · 이야기하고 싶지 않음 · 찍은 해 · 감춤.
+ * 사실(제목 · 사람 · 장소 …)은 여기서 못 바꾼다. 그건 확인 절차(claims)를 거친다.
+ */
+app.patch('/api/memories/:id', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const patch = {};
+    if ('importance' in body) patch.importance = body.importance;   // 1~3 이 아니면 null
+    if ('avoid' in body) patch.avoid = body.avoid === true;
+    if ('taken_year' in body) patch.taken_year = body.taken_year;   // 말이 안 되는 해면 null
+    if ('hidden' in body) patch.hidden = body.hidden === true;
+    if (Object.keys(patch).length === 0) return fail(res, 400, '바꿀 내용이 없어요.');
+
+    const memory = await memories.update(req.params.id, patch);
+    if (!memory) return fail(res, 404, '그런 기억이 없어요.');
+    res.json({ memory: forClient(memory), score: scorePhoto(memory, await scoringContext(memory.owner_id)) });
+  } catch (err) {
+    console.error('[memories] patch', err);
+    fail(res, 500, '바꾸지 못했어요.');
+  }
+});
+
+/** 사진을 다시 살펴본다 (살펴보지 못했거나, 이 기능 전에 올린 사진) */
+app.post('/api/memories/:id/analyze', async (req, res) => {
+  try {
+    const memory = await memories.get(req.params.id);
+    if (!memory) return fail(res, 404, '그런 기억이 없어요.');
+    if (!memory.photo?.file) return fail(res, 400, '사진이 없는 기억이에요.');
+    if (!ANALYSIS || !OPENAI_API_KEY) return fail(res, 409, '사진 살펴보기를 꺼 두었어요.');
+
+    const updated = await memories.update(memory.memory_id, { analysis: { status: 'PENDING' } });
+    analyzeLater(memory.memory_id);
+    res.status(202).json({ memory: forClient(updated) });
+  } catch (err) {
+    console.error('[memories] analyze', err);
+    fail(res, 500, '다시 살펴보지 못했어요.');
+  }
+});
+
+/** 어르신 정보 — 태어나신 해. 추천 점수 ⑥ 에만 쓰고 모델에게는 보내지 않는다 */
+app.get('/api/profile', async (req, res) => {
+  try {
+    res.json({ profile: await profiles.get(owner(req)) });
+  } catch (err) {
+    console.error('[profile] get', err);
+    fail(res, 500, '정보를 불러오지 못했어요.');
+  }
+});
+
+app.put('/api/profile', async (req, res) => {
+  try {
+    res.json({ profile: await profiles.update(owner(req), req.body || {}) });
+  } catch (err) {
+    console.error('[profile] put', err);
+    fail(res, 500, '정보를 저장하지 못했어요.');
   }
 });
 
@@ -1016,7 +1192,7 @@ app.post('/api/memories/:id/claims/:claimId/verify', async (req, res) => {
     const status = req.body?.status === 'CAREGIVER_VERIFIED' ? 'CAREGIVER_VERIFIED' : 'VERIFIED';
     const memory = await memories.verifyClaim(req.params.id, req.params.claimId, status);
     if (!memory) return fail(res, 404, '그런 기억이나 내용이 없어요.');
-    res.json({ memory });
+    res.json({ memory: forClient(memory) });
   } catch (err) {
     console.error('[memories] verify', err);
     fail(res, 500, '확인을 저장하지 못했어요.');
@@ -1044,10 +1220,15 @@ app.post('/api/memories/:id/photo', photoUpload.single('photo'), async (req, res
     }
 
     const old = memory.photo?.file;
-    const updated = await memories.update(memory.memory_id, { photo: { file: saved.file } });
+    /* 사진이 바뀌면 옛 사진을 살펴본 결과는 맞지 않는다. 새로 살펴본다. */
+    const updated = await memories.update(memory.memory_id, {
+      photo: { file: saved.file },
+      analysis: analysisStart(),
+    });
     if (old && old !== saved.file) await photos.remove(old);
+    analyzeLater(memory.memory_id);
 
-    res.status(201).json({ memory: updated, photo: saved });
+    res.status(201).json({ memory: forClient(updated), photo: saved });
   } catch (err) {
     console.error('[photo] upload', err);
     fail(res, 500, '사진을 저장하지 못했어요.');
@@ -1102,7 +1283,8 @@ app.delete('/api/memories/:id/photo', async (req, res) => {
     const memory = await memories.get(req.params.id);
     if (!memory) return fail(res, 404, '그런 기억이 없어요.');
     if (memory.photo?.file) await photos.remove(memory.photo.file);
-    res.json({ memory: await memories.update(memory.memory_id, { photo: null }) });
+    // 사진이 없으면 살펴본 결과도 뜻이 없다
+    res.json({ memory: forClient(await memories.update(memory.memory_id, { photo: null, analysis: null })) });
   } catch (err) {
     console.error('[photo] delete', err);
     fail(res, 500, '사진을 지우지 못했어요.');
@@ -1260,6 +1442,7 @@ app.get('/api/health', (_req, res) => {
     ok: true, hasKey: Boolean(OPENAI_API_KEY), chatModel: CHAT_MODEL,
     dataDir: DATA_DIR, keepTranscript: KEEP_TRANSCRIPT,
     sessionLimitSeconds: SESSION_SECONDS,
+    photoVision: VISION, photoAnalysis: Boolean(ANALYSIS && OPENAI_API_KEY),
   });
 });
 

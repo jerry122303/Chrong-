@@ -6,19 +6,23 @@
 <title>기억 사진 등록 — 말동무 친구</title>
 <link rel="stylesheet" href="styles.css">
 <style>
-  .wrap { max-width: 760px; margin: 0 auto; padding: 20px 16px 60px; }
+  /* styles.css 는 대화 화면을 한 화면에 가두려고 body 를 grid · overflow hidden 으로 둔다.
+     이 페이지는 길게 내려 읽어야 하므로 그 틀을 풀어 준다. 안 풀면 아래 목록까지 스크롤이 안 된다. */
+  html, body { height: auto; }
+  body { display: block; overflow: auto; }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 20px 16px 60px; }
   h1 { font-size: calc(var(--base) * 1.5); color: var(--brand); margin: 8px 0 4px; }
   .lead { color: var(--ink-2); margin: 0 0 24px; line-height: 1.6; }
   .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 18px; }
   .card h2 { font-size: calc(var(--base) * 1.1); margin: 0 0 14px; }
   label { display: block; margin-bottom: 12px; }
   label span { display: block; font-size: calc(var(--base) * .86); color: var(--ink-2); margin-bottom: 5px; }
-  input[type=text], textarea {
+  input[type=text], input[type=number], textarea {
     width: 100%; box-sizing: border-box; font: inherit; padding: 10px 12px;
     border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink);
   }
   textarea { min-height: 66px; resize: vertical; }
-  .hint { font-size: calc(var(--base) * .8); color: var(--ink-3); margin-top: 4px; }
+  .hint { font-size: calc(var(--base) * .8); color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
   .drop {
     border: 2px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center;
     color: var(--ink-2); cursor: pointer; background: var(--bg-2);
@@ -32,20 +36,12 @@
   .msg:empty { display: none; }
   .msg.ok { background: #E8F3EC; color: #1F5637; }
   .msg.bad { background: #FBEAEA; color: #8C2F2F; }
-  .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-  .item { border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: #fff; }
-  .item img { width: 100%; height: 120px; object-fit: cover; display: block; background: var(--bg-2); }
-  .item .no-photo { height: 120px; display: grid; place-items: center; color: var(--ink-3); background: var(--bg-2); font-size: calc(var(--base) * .82); }
-  .item .body { padding: 9px 10px; }
-  .item .t { font-weight: 700; font-size: calc(var(--base) * .92); }
-  .item .s { font-size: calc(var(--base) * .78); color: var(--ink-2); margin-top: 3px; }
-  .tag { display: inline-block; font-size: calc(var(--base) * .74); padding: 1px 7px; border-radius: 20px; margin-top: 5px; }
-  .tag.v { background: #E8F3EC; color: #1F5637; }
-  .tag.u { background: #FBF1E3; color: #8A5A1E; }
+  .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+  .item { border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  .item .body { padding: 8px 10px; }
+  .item .t { font-weight: 700; font-size: calc(var(--base) * .82); }
+  .tag { display: inline-block; font-size: calc(var(--base) * .7); padding: 1px 7px; border-radius: 20px; margin-top: 4px; }
   .tag.d { background: #FBEAEA; color: #8C2F2F; }
-  .tag.t { background: #EEF1F7; color: #46536B; }
-  .item .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-  .item.dim img, .item.dim .no-photo { opacity: .45; }
 
   .log { display: flex; flex-direction: column; gap: 14px; }
   .log-item { border-left: 3px solid var(--brand); padding: 2px 0 2px 13px; }
@@ -64,6 +60,111 @@
   }
   .save:hover { background: var(--brand-2); }
   .save:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-sm {
+    font: inherit; font-size: calc(var(--base) * .76); padding: 5px 13px; border-radius: 999px;
+    border: 1px solid var(--line-2); background: #fff; color: var(--ink-2); cursor: pointer;
+  }
+  .btn-sm:hover { border-color: var(--brand); color: var(--brand); }
+  .btn-sm:disabled { opacity: .5; cursor: wait; }
+
+  /* 어르신 정보 */
+  .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .inline label { margin: 0; font-weight: 700; }
+  .inline input[type=number] { width: 8em; }
+
+  /* 등록 순서 */
+  .steps {
+    display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center;
+    margin: -6px 0 14px; font-size: calc(var(--base) * .74); color: var(--ink-3);
+  }
+  .steps b { color: var(--brand); font-weight: 700; }
+  .auto {
+    margin-top: 10px; padding: 9px 12px; border-radius: 9px; background: var(--brand-soft);
+    color: var(--ink-2); font-size: calc(var(--base) * .8); line-height: 1.5;
+  }
+  .auto[hidden] { display: none; }
+
+  /* 중요도 고르기 */
+  .imp { border: 0; padding: 0; margin: 18px 0 16px; }
+  .imp legend { font-weight: 700; margin-bottom: 8px; font-size: calc(var(--base) * .92); padding: 0; }
+  .imp-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .imp-opt { position: relative; margin: 0; }
+  .imp-opt input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .imp-opt > span {
+    display: flex; flex-direction: column; align-items: center; gap: 1px; margin: 0;
+    padding: 9px 8px; border: 1px solid var(--line-2); border-radius: 10px; cursor: pointer;
+    font-size: calc(var(--base) * .82); color: var(--ink); text-align: center;
+  }
+  .imp-opt input:checked + span {
+    border-color: var(--brand); background: var(--brand-soft); color: var(--brand); font-weight: 700;
+  }
+  .imp-opt input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .imp-opt.avoid { grid-column: 1 / -1; }
+  .stars { font-style: normal; color: #C9921A; letter-spacing: 1px; }
+
+  /* 추천 순서 */
+  .how { font-size: calc(var(--base) * .78); color: var(--ink-2); margin: -6px 0 14px; }
+  .how summary { cursor: pointer; color: var(--brand); font-weight: 600; }
+  .how table { border-collapse: collapse; margin-top: 8px; width: 100%; }
+  .how td { border-top: 1px solid var(--line); padding: 5px 6px; vertical-align: top; }
+  .how td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
+  .how p { margin: 8px 0 0; }
+  .rank { display: flex; flex-direction: column; gap: 12px; }
+  .rk {
+    display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 14px;
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff;
+  }
+  .rk.next { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+  .rk.ex { background: #FBFAF7; }
+  .rk.ex .rk-art { opacity: .45; }
+  .rk-art img, .rk-art .no-photo {
+    width: 128px; height: 128px; object-fit: cover; border-radius: 9px; display: block; background: var(--line);
+  }
+  .rk-art .no-photo { display: grid; place-items: center; color: var(--ink-3); font-size: calc(var(--base) * .74); }
+  .rk-top { display: flex; align-items: baseline; gap: 6px 8px; flex-wrap: wrap; }
+  .rk-title { font-weight: 700; font-size: calc(var(--base) * .94); }
+  .rk-score { margin-left: auto; font-weight: 800; color: var(--brand); font-size: calc(var(--base) * 1.05); }
+  .rk-score.ex { color: var(--ink-3); font-weight: 600; font-size: calc(var(--base) * .8); }
+  .rk-badge {
+    font-size: calc(var(--base) * .68); background: var(--brand); color: #fff;
+    padding: 1px 9px; border-radius: 999px; align-self: center;
+  }
+  .rk-why { margin: 3px 0 0; font-size: calc(var(--base) * .76); color: #8C2F2F; }
+  .rk-stars { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; margin: 6px 0 6px; }
+  .rk-stars button {
+    font: inherit; background: none; border: 1px solid transparent; border-radius: 8px;
+    padding: 0 3px; cursor: pointer; font-size: calc(var(--base) * 1.05); color: #D6D3CA; line-height: 1.2;
+  }
+  .rk-stars button.on { color: #C9921A; }
+  .rk-stars button:hover { border-color: var(--line); }
+  .rk-stars .rk-avoid {
+    font-size: calc(var(--base) * .7); color: var(--ink-3); border-color: var(--line);
+    padding: 3px 10px; margin-left: 8px; border-radius: 999px;
+  }
+  .rk-stars .rk-avoid.on { color: #8C2F2F; border-color: #E8C5C2; background: #FBEAEA; }
+  .rk-parts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; font-size: calc(var(--base) * .74); }
+  .rk-parts li {
+    display: grid; grid-template-columns: 1.3em 5.4em minmax(0, 1fr) 2.6em; gap: 6px;
+    align-items: baseline; color: var(--ink-2);
+  }
+  .rk-parts li.zero { color: var(--ink-3); }
+  .rk-parts .no { color: var(--ink-3); }
+  .rk-parts .why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rk-parts .pt { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  .rk-parts .pt.plus { color: var(--brand); }
+  .rk-parts .pt.minus { color: #8C2F2F; }
+  .rk-foot {
+    display: flex; gap: 6px 10px; align-items: center; flex-wrap: wrap;
+    margin-top: 8px; font-size: calc(var(--base) * .72); color: var(--ink-3);
+  }
+  .rk-foot label { display: inline-flex; gap: 5px; align-items: center; margin: 0; }
+  .rk-foot input[type=number] { width: 5.6em; padding: 3px 7px; font-size: calc(var(--base) * .74); }
+  .rk-foot .pending { color: var(--brand); }
+  @media (max-width: 560px) {
+    .rk { grid-template-columns: minmax(0, 1fr); }
+    .rk-art img, .rk-art .no-photo { width: 100%; height: 190px; }
+    .imp-opts { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 </head>
 <body class="fs-2">
@@ -75,17 +176,51 @@
     <strong>보호자께서 확인하신 내용만</strong> 대화에 쓰입니다.
   </p>
 
+  <div class="card">
+    <h2>어르신 정보</h2>
+    <div class="inline">
+      <label for="birth">태어나신 해</label>
+      <input type="number" id="birth" min="1900" max="2100" placeholder="예: 1950" inputmode="numeric">
+      <button class="btn-sm" type="button" id="saveBirth">저장</button>
+      <span class="hint" id="birthMsg" style="margin:0"></span>
+    </div>
+    <div class="hint">
+      사진을 찍었을 때 어르신이 열 살에서 서른 살 사이셨는지 계산하는 데만 씁니다.
+      그 무렵 기억이 가장 또렷하게 떠올라, 그때 사진을 먼저 권합니다.
+    </div>
+  </div>
+
   <form class="card" id="form">
     <h2>새 기억 추가</h2>
+    <div class="steps">
+      <b>① 사진 고르기</b><span>→</span><b>② 찍은 날 · 위치 자동 저장</b><span>→</span>
+      <b>③ 중요도 고르기</b><span>→</span><b>④ 등록</b>
+    </div>
 
     <label class="drop" id="drop">
       <input type="file" id="file" accept="image/jpeg,image/png,image/gif,image/webp">
       <div id="dropText">사진을 고르거나 여기로 끌어다 놓으세요</div>
     </label>
     <div class="preview" id="preview" hidden><img id="previewImg" alt="고른 사진"></div>
+    <div class="auto" id="auto" hidden></div>
     <div class="hint">사진 없이 이야기 주제만 등록해도 됩니다.</div>
 
-    <div style="height:14px"></div>
+    <fieldset class="imp" id="imp">
+      <legend>이 사진은 나에게 얼마나 중요한 사진인가요? *</legend>
+      <div class="imp-opts">
+        <label class="imp-opt"><input type="radio" name="importance" value="1">
+          <span><em class="stars">★</em>평범한 사진</span></label>
+        <label class="imp-opt"><input type="radio" name="importance" value="2">
+          <span><em class="stars">★★</em>소중한 사진</span></label>
+        <label class="imp-opt"><input type="radio" name="importance" value="3">
+          <span><em class="stars">★★★</em>매우 소중한 사진</span></label>
+        <label class="imp-opt avoid"><input type="radio" name="importance" value="avoid">
+          <span>이 사진으로 이야기하고 싶지 않아요</span></label>
+      </div>
+      <div class="hint">
+        별점이 곧 순서가 되지는 않습니다. 사진 속 이야기 단서 · 찍은 시기 · 최근에 나왔는지와 함께 계산합니다.
+      </div>
+    </fieldset>
 
     <label><span>제목 *</span>
       <input type="text" id="title" required maxlength="80" placeholder="예: 딸의 결혼식">
@@ -100,6 +235,13 @@
     <label><span>언제쯤</span>
       <input type="text" id="when" maxlength="80" placeholder="예: 스무 해쯤 전">
       <div class="hint">정확한 날짜가 아니어도 됩니다. 어르신께 날짜를 여쭙지 않습니다.</div>
+    </label>
+    <label><span>찍은 해</span>
+      <input type="number" id="takenYear" min="1900" max="2100" placeholder="예: 1975" inputmode="numeric">
+      <div class="hint">
+        아시면 적어 주세요. 사진 파일의 날짜보다 먼저 씁니다. 옛 사진을 휴대폰으로 다시 찍으면
+        파일 날짜가 오늘로 바뀌기 때문입니다. 추천 순서에만 쓰고 대화에서 말하지 않습니다.
+      </div>
     </label>
     <label><span>설명</span>
       <textarea id="desc" maxlength="300" placeholder="예: 결혼식이 끝나고 다 같이 찍은 사진"></textarea>
@@ -121,23 +263,53 @@
   </div>
 
   <div class="card">
-    <h2>등록된 기억 <span id="count" class="hint"></span></h2>
+    <h2>추천 순서 <span id="count" class="hint"></span></h2>
+    <details class="how">
+      <summary>점수는 이렇게 매깁니다</summary>
+      <table><tbody id="rules"></tbody></table>
+      <p>
+        ② ~ ⑤ 는 사진을 올릴 때 초롱이가 사진을 한 번 살펴보고 매깁니다.
+        사람이 누구인지 · 몇 살인지 · 어떤 사이인지는 알아보지 않습니다.
+        살펴본 결과는 순서를 정하는 데만 쓰고 대화에서 사실처럼 말하지 않습니다.
+      </p>
+    </details>
     <div class="msg bad" id="distress-note" hidden></div>
-    <div class="list" id="list"></div>
+    <div class="msg bad" id="rankMsg"></div>
+    <div class="rank" id="rank"></div>
+  </div>
+
+  <div class="card">
+    <h2>이야깃거리 <span id="themeCount" class="hint"></span></h2>
+    <p class="hint" style="margin:-8px 0 12px">사진이 없거나 사진을 다 보신 뒤에 꺼내는 주제입니다.</p>
+    <div class="list" id="themes"></div>
   </div>
 </div>
 
 <script type="module">
+import { readExifFromFile, formatTakenDate } from './exif.js';
+
 const $ = (id) => document.getElementById(id);
 const OWNER = new URLSearchParams(location.search).get('owner') || 'default';
+const Q = '?owner=' + encodeURIComponent(OWNER);
 
-let picked = null;   // 줄여 놓은 사진
+let picked = null;       // 줄여 놓은 사진
+let pickedExif = null;   // 줄이기 전에 원본에서 읽은 찍은 날 · 위치
+let previewUrl = '';
 
 const esc = (s) => String(s == null ? '' : s).replace(
   /[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
+/** JSON 이면 머리말을 붙이고, 실패하면 서버가 준 우리말 까닭을 던진다 */
+async function api(url, opts = {}) {
+  const json = typeof opts.body === 'string';
+  const r = await fetch(url, { ...opts, headers: json ? { 'Content-Type': 'application/json' } : undefined });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.message || '요청이 실패했어요.');
+  return out;
+}
+
 /**
- * 휴대폰 사진은 네 천 화소가 넘어 그대로 올리면 느리다.
+ * 휴대폰 사진은 사천 화소가 넘어 그대로 올리면 느리다.
  * 화면에 보일 만한 크기(긴 변 1600)까지 줄여서 보낸다.
  * 줄인 쪽이 더 크면 원본을 그대로 쓴다 (작은 png 등).
  */
@@ -167,6 +339,31 @@ function say(text, kind) {
   $('msg').textContent = text || '';
 }
 
+/* ---------------- 어르신 정보 ---------------- */
+
+async function loadProfile() {
+  try {
+    const { profile } = await api('/api/profile' + Q);
+    if (profile.birth_year) $('birth').value = profile.birth_year;
+  } catch { /* 없으면 비워 둔다 */ }
+}
+
+$('saveBirth').addEventListener('click', async () => {
+  const typed = $('birth').value.trim();
+  try {
+    const { profile } = await api('/api/profile' + Q, {
+      method: 'PUT', body: JSON.stringify({ birth_year: typed || null }),
+    });
+    $('birthMsg').textContent = profile.birth_year ? '저장했어요'
+      : typed ? '1900년부터 올해 사이로 적어 주세요' : '지웠어요';
+    loadRank();
+  } catch (err) {
+    $('birthMsg').textContent = err.message;
+  }
+});
+
+/* ---------------- ① 사진 고르기 → ② 찍은 날 · 위치 ---------------- */
+
 async function choose(file) {
   if (!file) return;
   if (!/^image\//.test(file.type)) {
@@ -174,10 +371,23 @@ async function choose(file) {
     return;
   }
   say('');
+
+  // 줄이면 캔버스를 거치며 파일 정보가 떨어져 나가므로 원본에서 먼저 읽는다
+  pickedExif = await readExifFromFile(file);
   picked = await shrink(file);
-  $('previewImg').src = URL.createObjectURL(picked);
+
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(picked);
+  $('previewImg').src = previewUrl;
   $('preview').hidden = false;
   $('dropText').textContent = file.name + ' — 바꾸려면 다시 누르세요';
+
+  const bits = [
+    pickedExif.takenAt ? '찍은 날 <b>' + esc(formatTakenDate(pickedExif.takenAt)) + '</b>' : '찍은 날 정보 없음',
+    pickedExif.gps ? '찍은 곳 <b>위치 정보 있음</b> (동네 수준으로 줄여 서버에만 저장)' : '위치 정보 없음',
+  ];
+  $('auto').innerHTML = '사진 파일에서 읽은 정보 — ' + bits.join(' · ');
+  $('auto').hidden = false;
 }
 
 $('file').addEventListener('change', (e) => choose(e.target.files[0]));
@@ -189,10 +399,18 @@ const drop = $('drop');
   drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => choose(e.dataTransfer.files[0]));
 
+/* ---------------- ③ 중요도 → ④ 등록 ---------------- */
+
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const title = $('title').value.trim();
   if (!title) { say('제목을 적어 주세요.', 'bad'); return; }
+  const chosen = document.querySelector('input[name=importance]:checked');
+  if (!chosen) {
+    say('이 사진이 얼마나 중요한 사진인지 골라 주세요.', 'bad');
+    $('imp').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return;
+  }
 
   $('save').disabled = true;
   say('등록하는 중이에요…', 'ok');
@@ -211,36 +429,35 @@ $('form').addEventListener('submit', async (e) => {
     if (when_text) verified_fields.push('when_text');
     if (description) verified_fields.push('description');
 
-    const r = await fetch('/api/memories', {
+    const avoid = chosen.value === 'avoid';
+    const created = await api('/api/memories', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         owner_id: OWNER, title, people, place, when_text, description,
         verification_status: 'CAREGIVER_VERIFIED',
         verified_fields,
+        importance: avoid ? null : Number(chosen.value),
+        avoid,
+        taken_year: $('takenYear').value || null,
+        meta: picked && pickedExif ? { taken_at: pickedExif.takenAt, gps: pickedExif.gps } : null,
       }),
     });
-    const created = await r.json();
-    if (!r.ok) throw new Error(created.message || '등록하지 못했어요.');
 
+    const hadPhoto = Boolean(picked);
     if (picked) {
       const fd = new FormData();
       fd.append('photo', picked, 'photo.jpg');
-      const pr = await fetch('/api/memories/' + created.memory.memory_id + '/photo', {
-        method: 'POST', body: fd,
-      });
-      if (!pr.ok) {
-        const out = await pr.json().catch(() => ({}));
-        throw new Error(out.message || '사진을 올리지 못했어요.');
-      }
+      await api('/api/memories/' + created.memory.memory_id + '/photo', { method: 'POST', body: fd });
     }
 
     $('form').reset();
     picked = null;
+    pickedExif = null;
     $('preview').hidden = true;
+    $('auto').hidden = true;
     $('dropText').textContent = '사진을 고르거나 여기로 끌어다 놓으세요';
-    say('등록했어요.', 'ok');
-    load();
+    say(hadPhoto ? '등록했어요. 초롱이가 사진을 살펴보는 동안 점수가 곧 채워집니다.' : '등록했어요.', 'ok');
+    loadRank();
   } catch (err) {
     say(err.message, 'bad');
   } finally {
@@ -248,44 +465,153 @@ $('form').addEventListener('submit', async (e) => {
   }
 });
 
-async function load() {
-  const r = await fetch('/api/memories?owner=' + encodeURIComponent(OWNER));
-  const out = await r.json();
-  const memories = out.memories || [];
-  $('count').textContent = memories.length ? '(' + memories.length + '건)' : '';
+/* ---------------- 추천 순서 ---------------- */
+
+const STAR_NAME = ['', '평범한 사진', '소중한 사진', '매우 소중한 사진'];
+const STATUS_TEXT = {
+  PENDING: '초롱이가 사진을 살펴보는 중이에요…',
+  FAILED: '사진을 살펴보지 못했어요',
+  SKIPPED: '사진 살펴보기가 꺼져 있어요',
+};
+let pollTimer = 0;
+
+function renderRules(rules) {
+  if (!Array.isArray(rules)) return;
+  $('rules').innerHTML = rules
+    .map(([no, what, points]) => '<tr><td>' + esc(no) + ' ' + esc(what) + '</td><td>' + esc(points) + '</td></tr>')
+    .join('');
+}
+
+function rankCard({ memory: m, score: s }, nextId) {
+  const art = m.photo
+    ? '<img src="/api/memories/' + m.memory_id + '/photo" alt="' + esc(m.title) + '" loading="lazy">'
+    : '<div class="no-photo">사진 없음</div>';
+  const stars = m.importance ?? (m.favorite ? 2 : null);
+
+  const starButtons = [1, 2, 3].map((n) =>
+    '<button type="button" data-act="imp" data-v="' + n + '"'
+    + ' class="' + (!m.avoid && stars >= n ? 'on' : '') + '"'
+    + ' aria-label="별 ' + n + '개 — ' + STAR_NAME[n] + '" title="' + STAR_NAME[n] + '">★</button>').join('')
+    + '<button type="button" data-act="avoid" class="rk-avoid' + (m.avoid ? ' on' : '') + '">'
+    + '이야기하고 싶지 않아요</button>';
+
+  const parts = s.parts.map((p) => {
+    const cls = p.points > 0 ? 'plus' : p.points < 0 ? 'minus' : '';
+    const shown = p.points > 0 ? '+' + p.points : String(p.points);
+    return '<li class="' + (p.points === 0 ? 'zero' : '') + '">'
+      + '<span class="no">' + esc(p.no) + '</span>'
+      + '<span>' + esc(p.label) + '</span>'
+      + '<span class="why" title="' + esc(p.reason) + '">' + esc(p.reason) + '</span>'
+      + '<span class="pt ' + cls + '">' + shown + '</span></li>';
+  }).join('');
+
+  const a = m.analysis;
+  const status = !m.photo ? '' : !a ? '아직 살펴보지 않은 사진이에요' : (STATUS_TEXT[a.status] || '');
+  const canRetry = m.photo && (!a || a.status === 'FAILED');
+  const fileInfo = [
+    m.meta?.taken_at ? '파일 날짜 ' + esc(formatTakenDate(m.meta.taken_at)) : '',
+    m.meta?.has_gps ? '위치 정보 있음' : '',
+  ].filter(Boolean);
+
+  return '<div class="rk' + (m.memory_id === nextId ? ' next' : '') + (s.excluded ? ' ex' : '') + '"'
+    + ' data-id="' + esc(m.memory_id) + '">'
+    + '<div class="rk-art">' + art + '</div>'
+    + '<div class="rk-body">'
+    + '<div class="rk-top">'
+    + (m.memory_id === nextId ? '<span class="rk-badge">다음에 보여 드릴 사진</span>' : '')
+    + '<span class="rk-title">' + (esc(m.title) || '(제목 없음)') + '</span>'
+    + (s.excluded
+      ? '<span class="rk-score ex">추천 제외</span>'
+      : '<span class="rk-score">' + s.total + '점</span>')
+    + '</div>'
+    + (s.excluded ? '<p class="rk-why">' + esc(s.excludeReason) + '</p>' : '')
+    + '<div class="rk-stars" role="group" aria-label="중요도 바꾸기">' + starButtons + '</div>'
+    + '<ul class="rk-parts">' + parts + '</ul>'
+    + '<div class="rk-foot">'
+    + (status ? '<span class="' + (a?.status === 'PENDING' ? 'pending' : '') + '">' + esc(status) + '</span>' : '')
+    + (canRetry ? '<button type="button" class="btn-sm" data-act="analyze">살펴보기</button>' : '')
+    + fileInfo.map((x) => '<span>' + x + '</span>').join('')
+    + '<label>찍은 해 <input type="number" min="1900" max="2100" placeholder="모름"'
+    + ' value="' + (m.taken_year || '') + '"></label>'
+    + '<button type="button" class="btn-sm" data-act="year">저장</button>'
+    + '</div>'
+    + '</div></div>';
+}
+
+async function loadRank() {
+  let data;
+  try {
+    data = await api('/api/memories/scores' + Q);
+  } catch (err) {
+    $('rankMsg').textContent = err.message;
+    return;
+  }
+  $('rankMsg').textContent = '';
+  renderRules(data.rules);
+
+  const photos = data.photos || [];
+  $('count').textContent = photos.length ? '(' + photos.length + '건)' : '';
 
   /* 어르신이 힘들어하신 것은 다음부터 저절로 나오지 않는다.
      보호자가 사정을 알고 다시 열지 판단해야 하므로 눈에 띄게 알린다. */
-  const upset = memories.filter((m) => m.distress_flag);
-  const note = $('distress-note');
-  note.hidden = upset.length === 0;
+  const upset = photos.filter((p) => p.memory.distress_flag);
+  $('distress-note').hidden = upset.length === 0;
   if (upset.length) {
-    note.textContent = '어르신이 힘들어하신 이야기가 ' + upset.length + '건 있어요. '
-      + '다음부터는 저절로 꺼내지 않습니다. (' + upset.map((m) => m.title).join(', ') + ')';
+    $('distress-note').textContent = '어르신이 힘들어하신 이야기가 ' + upset.length + '건 있어요. '
+      + '다음부터는 저절로 꺼내지 않습니다. (' + upset.map((p) => p.memory.title).join(', ') + ')';
   }
 
-  $('list').innerHTML = memories.map((m) => {
-    const ok = m.verification_status !== 'UNVERIFIED';
-    const art = m.photo
-      ? '<img src="/api/memories/' + m.memory_id + '/photo" alt="' + esc(m.title) + '">'
-      : '<div class="no-photo">사진 없음</div>';
-    const sub = esc([m.place, m.when_text].filter(Boolean).join(' · '));
+  $('rank').innerHTML = photos.map((p) => rankCard(p, data.next_id)).join('')
+    || '<div class="hint">아직 등록된 사진이 없어요. 위에서 등록하시거나, 대화 화면의 [+ 사진] 으로 올리실 수 있어요.</div>';
 
-    const tags = ['<span class="tag ' + (ok ? 'v' : 'u') + '">' + (ok ? '확인됨' : '확인 전') + '</span>'];
-    if (m.kind === 'THEME') tags.push('<span class="tag t">이야깃거리</span>');
-    if (m.distress_flag) tags.push('<span class="tag d">힘들어하심</span>');
-    if (m.hidden) tags.push('<span class="tag d">감춤</span>');
-
-    return '<div class="item' + (m.distress_flag || m.hidden ? ' dim' : '') + '">' + art
-      + '<div class="body">'
-      + '<div class="t">' + (esc(m.title) || '(제목 없음)') + '</div>'
-      + '<div class="s">' + sub + '</div>'
-      + '<div class="tags">' + tags.join('') + '</div>'
-      + '</div></div>';
-  }).join('') || '<div class="hint">아직 등록된 기억이 없습니다.</div>';
+  // 살펴보는 중인 사진이 있으면 잠시 뒤 다시 불러와 점수를 채운다
+  clearTimeout(pollTimer);
+  if (photos.some((p) => p.memory.analysis?.status === 'PENDING')) pollTimer = setTimeout(loadRank, 3000);
 }
 
-/* 회상 기록 — 어르신이 무슨 이야기를 하셨는지 */
+$('rank').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const cardEl = btn.closest('.rk');
+  const id = cardEl.dataset.id;
+  const url = '/api/memories/' + encodeURIComponent(id);
+  btn.disabled = true;
+  try {
+    if (btn.dataset.act === 'imp') {
+      await api(url, { method: 'PATCH', body: JSON.stringify({ importance: Number(btn.dataset.v), avoid: false }) });
+    } else if (btn.dataset.act === 'avoid') {
+      await api(url, { method: 'PATCH', body: JSON.stringify({ avoid: !btn.classList.contains('on') }) });
+    } else if (btn.dataset.act === 'year') {
+      const typed = cardEl.querySelector('.rk-foot input').value.trim();
+      await api(url, { method: 'PATCH', body: JSON.stringify({ taken_year: typed || null }) });
+    } else if (btn.dataset.act === 'analyze') {
+      await api(url + '/analyze' + Q, { method: 'POST' });
+    }
+    await loadRank();
+  } catch (err) {
+    $('rankMsg').textContent = err.message;
+    btn.disabled = false;
+  }
+});
+
+/* ---------------- 이야깃거리 ---------------- */
+
+async function loadThemes() {
+  try {
+    const { memories } = await api('/api/memories' + Q);
+    const themes = memories.filter((m) => m.kind === 'THEME');
+    $('themeCount').textContent = themes.length ? '(' + themes.length + '가지)' : '';
+    $('themes').innerHTML = themes.map((m) => '<div class="item"><div class="body">'
+      + '<div class="t">' + esc(m.title) + '</div>'
+      + (m.distress_flag ? '<span class="tag d">힘들어하심</span>' : '')
+      + (m.hidden ? '<span class="tag d">감춤</span>' : '')
+      + '</div></div>').join('')
+      || '<div class="hint">대화 화면에서 사진 이야기를 처음 여시면 채워집니다.</div>';
+  } catch { /* 목록을 못 불러와도 나머지는 쓸 수 있다 */ }
+}
+
+/* ---------------- 회상 기록 — 어르신이 무슨 이야기를 하셨는지 ---------------- */
+
 const WHEN = (iso) => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -298,7 +624,7 @@ const WHEN = (iso) => {
 async function loadLog() {
   let out;
   try {
-    out = await fetch('/api/sessions?owner=' + encodeURIComponent(OWNER)).then((r) => r.json());
+    out = await fetch('/api/sessions' + Q).then((r) => r.json());
   } catch {
     return;
   }
@@ -325,7 +651,9 @@ async function loadLog() {
   }).join('');
 }
 
-load();
+loadProfile();
+loadRank();
+loadThemes();
 loadLog();
 </script>
 </body>

@@ -830,6 +830,94 @@ body.has-keybar { grid-template-rows: auto auto 1fr auto; }
 }
 .keep-yes:hover { background: var(--brand-2); color: #fff; }
 
+/* ==================================================================
+ *  사진을 올리시면 얼마나 소중한 사진인지 여쭙기
+ *  고르신 별점은 추천 점수의 한 항목이다 (lib/photo-score.js)
+ * ================================================================== */
+.rate {
+  flex: 0 0 auto;
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--brand);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rate[hidden] { display: none; }
+.rate-q {
+  margin: 0;
+  font-size: calc(var(--base) * .92);
+  font-weight: 700;
+  color: var(--ink);
+}
+.rate-meta {
+  margin: -4px 0 0;
+  font-size: calc(var(--base) * .72);
+  color: var(--ink-3);
+}
+.rate-meta[hidden] { display: none; }
+.rate-acts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.rate-btn {
+  font: inherit;
+  font-size: calc(var(--base) * .8);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-btn);
+  padding: 7px 8px;
+  min-height: 54px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1.25;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.rate-btn:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+/* 금색 별은 꾸밈이다. 버튼 이름은 글자로 읽힌다 */
+.rate-stars { color: #C9921A; letter-spacing: 1px; font-size: calc(var(--base) * .92); }
+.rate-avoid {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  min-height: 42px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+/* 고르시는 동안에는 '다른 사진 · 그만 보기' 를 감춘다. 무엇을 고르는지 헷갈리지 않게 */
+.memory.rating .memory-acts { display: none; }
+/* 고르시는 동안에는 사진과 고르는 칸에 자리를 내준다.
+   넓은 화면은 무대 높이가 정해져 있어 자막 · 상태 줄까지 두면 사진이 손가락 굵기로 줄어든다.
+   묻는 말은 고르는 칸 제목과 대화 기록에 그대로 남아 있다. */
+.stage.rating .subtitle,
+.stage.rating .stage-bar { display: none; }
+/* 위아래로 쌓이는 좁은 화면에서는 고르는 동안 사진을 조금 줄이고 버튼을 촘촘히 해,
+   네 가지 선택지가 아래 입력칸에 가리지 않고 한 화면에 들어오게 한다.
+   글자를 크게 하셔서 그래도 넘치면 화면이 알아서 내려 준다 (app.js revealRate). */
+@media (max-width: 1000px) {
+  .stage.with-memory.rating .memory-photo { height: 150px; }
+}
+@media (max-width: 560px) {
+  .stage.rating .rate { padding: 12px 14px; gap: 8px; }
+  .stage.rating .rate-btn { min-height: 46px; padding: 6px 8px; }
+  .stage.rating .rate-avoid { min-height: 42px; }
+}
+@media (min-width: 1001px) {
+  .stage.with-memory .rate { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .rate-acts { grid-template-columns: 1fr; }
+  .rate-btn { flex-direction: row; gap: 8px; min-height: 50px; }
+}
+
 /* 사진 없이 주제로만 이야기할 때 — 빈 사진 칸 대신 주제를 크게 보여 준다 */
 .memory.no-photo .memory-title {
   font-size: calc(var(--base) * 1.25);
