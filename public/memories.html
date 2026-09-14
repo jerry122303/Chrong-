@@ -280,7 +280,7 @@
 
   <div class="card">
     <h2>이야깃거리 <span id="themeCount" class="hint"></span></h2>
-    <p class="hint" style="margin:-8px 0 12px">사진이 없거나 사진을 다 보신 뒤에 꺼내는 주제입니다.</p>
+    <p class="hint" style="margin:-8px 0 12px">사진 없이 나누는 주제입니다. 대화 화면의 [기억 회상 지원] 은 올리신 사진만 씁니다.</p>
     <div class="list" id="themes"></div>
   </div>
 </div>
@@ -601,12 +601,14 @@ async function loadThemes() {
     const { memories } = await api('/api/memories' + Q);
     const themes = memories.filter((m) => m.kind === 'THEME');
     $('themeCount').textContent = themes.length ? '(' + themes.length + '가지)' : '';
+    // 심어 둔 이야깃거리가 없으면 칸째 감춘다
+    $('themes').closest('.card').hidden = themes.length === 0;
     $('themes').innerHTML = themes.map((m) => '<div class="item"><div class="body">'
       + '<div class="t">' + esc(m.title) + '</div>'
       + (m.distress_flag ? '<span class="tag d">힘들어하심</span>' : '')
       + (m.hidden ? '<span class="tag d">감춤</span>' : '')
       + '</div></div>').join('')
-      || '<div class="hint">대화 화면에서 사진 이야기를 처음 여시면 채워집니다.</div>';
+      || '';
   } catch { /* 목록을 못 불러와도 나머지는 쓸 수 있다 */ }
 }
 

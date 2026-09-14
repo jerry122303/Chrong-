@@ -21,7 +21,7 @@ const ui = {
   swap: $('btn-swap'), picker: $('picker'), cancel: $('btn-cancel'),
   startLabel: $('start-label'), brandName: document.querySelector('.brand-name'),
   stage: document.querySelector('.stage'),
-  photo: $('btn-photo'), photoState: $('photo-state'),
+  recall: $('btn-recall'), recallLabel: $('recall-label'),
   memory: $('memory'), memoryPhoto: $('memory-photo'), memoryTitle: $('memory-title'),
   nextPhoto: $('btn-next-photo'), closePhoto: $('btn-close-photo'),
   keep: $('keep'), keepList: $('keep-list'),
@@ -191,6 +191,10 @@ async function applyReply(data) {
   if (state.memory && data.shouldClose) {
     closingAfterSpeech = true;
   }
+  /* 어르신이 다른 사진을 보자 · 그만 보자고 하셨으면, 이 말이 끝난 뒤 화면이 따른다.
+     말로만 "다른 사진 볼게요" 하고 화면이 그대로면 어르신이 헷갈리신다. */
+  if (state.memory && data.photoAction === 'next') nextAfterSpeech = true;
+  if (state.memory && data.photoAction === 'stop') stopAfterSpeech = true;
   state.lastReply = { text: data.reply, emotion: data.emotion, mode: data.mode };
 
   addMessage('bot', data.reply);
@@ -364,9 +368,16 @@ async function speak(text, emotion, mode) {
  * 한쪽에만 두면 소리를 끈 어르신에게는 사진이 접히지 않는다.
  */
 function afterSpeaking() {
-  if (!closingAfterSpeech) return;
+  const stop = stopAfterSpeech;
+  const close = closingAfterSpeech;
+  const next = nextAfterSpeech;
+  stopAfterSpeech = false;
   closingAfterSpeech = false;
-  wrapUpMemoryTalk();          // 이미 여쭈었으므로 인사를 덧붙이지 않는다
+  nextAfterSpeech = false;
+
+  if (stop) { stopMemoryTalk(); return; }
+  if (close) { wrapUpMemoryTalk(); return; }   // 이미 여쭈었으므로 인사를 덧붙이지 않는다
+  if (next) nextRecallPhoto().then((moved) => { if (!moved) sayNoMorePhotos(); });
 }
 
 /* 서버 목소리를 못 쓸 때는 브라우저 기본 음성으로 말한다 */
@@ -750,17 +761,28 @@ function bindControls() {
  *  3) 개방형 질문 하나 : 정답을 요구하지 않는 물음으로 문만 연다.
  * ================================================================== */
 
-function showMemory(memory) {
-  state.memory = memory;
-  if (memory && !state.seenMemories.includes(memory.memory_id)) {
-    state.seenMemories.push(memory.memory_id);
+/**
+ * 사진을 무대에 띄운다 (null 이면 접는다).
+ *
+ * preview — 사진을 등록하며 중요도를 고르시는 동안 잠깐 보여 드리는 것.
+ *   회상 대화가 아니므로 지금 이야기하는 사진(state.memory)으로 두지 않고
+ *   이번 회기에 본 사진으로도 세지 않는다. 세어 두면 방금 올린 사진이
+ *   [기억 회상 지원] 에서 빠진다.
+ */
+function showMemory(memory, { preview = false } = {}) {
+  if (!preview) {
+    state.memory = memory;
+    if (memory && !state.seenMemories.includes(memory.memory_id)) {
+      state.seenMemories.push(memory.memory_id);
+    }
+    // 회상 중에는 같은 버튼이 '회상 마치기' 가 된다
+    ui.recall.setAttribute('aria-pressed', String(Boolean(memory)));
+    ui.recallLabel.textContent = memory ? '회상 마치기' : '기억 회상 지원';
   }
 
   const on = Boolean(memory);
   ui.memory.hidden = !on;
   ui.stage.classList.toggle('with-memory', on);
-  ui.photo.setAttribute('aria-pressed', String(on));
-  ui.photoState.textContent = on ? '켜짐' : '꺼짐';
   if (on) {
     const theme = memory.kind === 'THEME';
     ui.nextPhoto.textContent = theme ? '다른 이야기' : '다른 사진';
@@ -883,29 +905,22 @@ ui.keepYes.addEventListener('click', () => decideKeep(true));
 ui.keepNo.addEventListener('click', () => decideKeep(false));
 
 /**
- * 이야기를 여는 말.
- *
- * 주제는 사진이 없으므로 '이 사진을 보면' 하고 말하면 안 된다. 있지도 않은
- * 사진을 찾으시게 된다. 주제에는 그 주제에 맞는 물음이 미리 붙어 있다.
- * 물음표는 하나만 쓴다. 둘을 이어 붙이면 무엇에 답해야 할지 헷갈리신다.
+ * 사진 회상의 첫 물음. 어떤 사진이든 늘 이 말로 문을 연다.
+ * 정답이 없는 열린 질문이라 어르신이 떠오르는 대로 말씀하시면 된다.
+ * 모델에게 맡기지 않는다 — 사진을 먼저 설명하거나 알아맞히게 하는 말이 섞이기 쉽다.
  */
-function openingLineFor(memory, again = false) {
-  if (memory.kind === 'THEME') {
-    const q = memory.open_prompt || '어떤 기억이 떠오르세요?';
-    return again ? `이번에는 ${memory.title} 이야기를 해 볼까 해요. ${q}` : q;
-  }
-  const what = memory.title ? `${memory.title} 사진` : '이 사진';
-  return again
-    ? `이번에는 ${what}을 볼게요. 어떤 기억이 떠오르세요?`
-    : `${what}을 함께 볼게요. 어떤 일이 가장 먼저 떠오르세요?`;
-}
+const RECALL_OPENING = '이 사진을 보면 어떤 기억이 떠오르세요?';
 
-/** 다음에 볼 사진을 서버에서 받아 온다 (선택 순서는 서버가 정한다) */
+/**
+ * [기억 회상 지원] 에 띄울 사진 — 올리신 사진 중 추천 점수가 가장 높은 것.
+ * 이번 회기에 이미 본 사진은 뺀다. 이야깃거리(사진 없는 주제)로는 넘어가지 않는다.
+ * 남은 사진이 없으면 null, 서버에 못 물어보면 던진다.
+ */
 async function pickMemory() {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ kind: 'PHOTO' });
   if (state.seenMemories.length) params.set('exclude', state.seenMemories.join(','));
   const r = await fetch('/api/memories/next?' + params.toString());
-  if (!r.ok) return null;
+  if (!r.ok) throw new Error('next');
   const out = await r.json();
   return out.memory || null;
 }
@@ -938,6 +953,9 @@ const canInterrupt = () => !state.busy && !state.listening && !currentSource;
 let wrappingUp = false;
 /* 초롱이가 마무리 인사를 하는 중이면, 말이 끝난 뒤에 접는다 */
 let closingAfterSpeech = false;
+/* 어르신이 말로 "다른 사진 보자" · "그만 보자" 하셨으면, 초롱이 말이 끝난 뒤 화면이 따른다 */
+let nextAfterSpeech = false;
+let stopAfterSpeech = false;
 async function wrapUpMemoryTalk({ farewell = '' } = {}) {
   if (wrappingUp || !state.memory) return;
   wrappingUp = true;
@@ -985,10 +1003,11 @@ function scheduleAutoClose() {
 }
 
 /* ==================================================================
- *  사진 올려서 바로 이야기하기
+ *  사진 올려서 등록하기
  *
- *  보호자 화면에 미리 등록해 두지 않아도, 대화 중에 사진 한 장을 올리면
- *  그 자리에서 초롱이 옆에 뜨고 그 사진 이야기가 시작된다.
+ *  대화 중에 사진 한 장을 올리면 초롱이 옆에 잠깐 띄우고 얼마나 소중한
+ *  사진인지 여쭙는다. 등록은 거기서 끝난다. 사진을 보며 나누는 이야기는
+ *  [기억 회상 지원] 을 누르시면 점수가 높은 사진부터 연다.
  * ================================================================== */
 
 /**
@@ -1017,47 +1036,11 @@ async function shrinkPhoto(file) {
   }
 }
 
-/** 사진을 보고 이야기의 문을 여는 말을 받아 온다 */
-async function askAboutPhoto() {
-  const typing = showTyping();
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: state.history,
-        character: state.character,
-        sessionSeconds: Math.round((Date.now() - state.sessionStart) / 1000),
-        memory_id: state.memory ? state.memory.memory_id : null,
-        session_id: state.sessionId,
-        // 사진을 방금 올리신 차례임을 알린다 (서버가 사진을 모델에게 보여 준다)
-        photo_opening: true,
-      }),
-    });
-    typing.remove();
-    if (!res.ok) throw new Error('opening');
-    await applyReply(await res.json());
-  } catch {
-    typing.remove();
-    /* 대답을 못 받아도 사진은 이미 떠 있다. 아무 말 없이 두면 어르신이
-       무슨 말을 하셔야 할지 모르시므로, 준비된 말로 문을 연다. */
-    const line = state.memory ? openingLineFor(state.memory) : '사진을 함께 볼게요.';
-    state.history.push({ role: 'assistant', content: line });
-    saveHistory();
-    state.lastReply = { text: line, emotion: 'happy', mode: 'talk' };
-    addMessage('bot', line);
-    ui.subtitle.textContent = line;
-    avatar.setEmotion('happy');
-    avatar.playGesture('nod');
-    await speak(line, 'happy', 'talk');
-  }
-}
-
 /**
  * 고르신 사진 한 장을 올린다.
  *
  * 등록 순서 : 사진 올리기 → 파일 정보(찍은 날 · 위치) 저장 → 중요도 고르기 → 등록 끝.
- * 사진 이야기는 중요도를 고르신 뒤에 연다. "이야기하고 싶지 않아요" 를 고르시면 열지 않는다.
+ * 등록만 한다. 사진 이야기는 [기억 회상 지원] 을 누르시면 점수가 높은 사진부터 연다.
  */
 async function attachPhoto(file) {
   if (!file) return;
@@ -1102,8 +1085,10 @@ async function attachPhoto(file) {
 
     // 보던 사진이 있으면 오늘 들은 이야기를 먼저 여쭙고 그 회기를 닫는다
     if (state.memory) {
+      clearTimeout(closeTimer);
       await askToKeep(state.memory.memory_id, state.sessionId);
       await closeSession('USER');
+      showMemory(null);
     }
 
     // 이제부터는 서버가 가진 사진을 본다 (임시 주소를 곧 버리기 때문)
@@ -1129,6 +1114,7 @@ async function attachPhoto(file) {
    최근에 나왔는지와 함께 더해 다음에 보여 드릴 사진을 고른다 (lib/photo-score.js). */
 
 let rating = null;   // 중요도를 여쭙는 중인 사진
+const STAR_WORD = { 1: '평범한', 2: '소중한', 3: '매우 소중한' };
 
 /** 사진 파일에서 읽은 것을 한 줄로 */
 function describeMeta(exif) {
@@ -1154,7 +1140,7 @@ function revealRate() {
 
 function askImportance(memory, exif) {
   rating = memory;
-  showMemory(memory);                   // 무엇을 고르시는지 보이게 사진을 크게 띄운다
+  showMemory(memory, { preview: true });   // 무엇을 고르시는지 보이게 잠깐 크게 띄운다 (회상 대화는 아니다)
   ui.memory.classList.add('rating');
   ui.stage.classList.add('rating');
   const meta = describeMeta(exif);
@@ -1185,52 +1171,26 @@ async function chooseImportance(choice) {
   stopSpeaking();
 
   // 고르신 것을 남긴다. 남기지 못해도 대화는 이어 간다.
-  let saved = memory;
   try {
-    const r = await fetch('/api/memories/' + memory.memory_id, {
+    await fetch('/api/memories/' + memory.memory_id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(choice),
     });
-    if (r.ok) saved = (await r.json()).memory;
-  } catch { /* 무시 */ }
+  } catch { /* 무시 — 보호자 화면에서 다시 고를 수 있다 */ }
 
-  if (choice.avoid) {
-    // 이야기는 열지 않는다. 사진은 지우지 않고 넣어 둔다 (추천에서만 빠진다).
-    showMemory(null);
-    ui.memoryPhoto.removeAttribute('src');
-    const line = '알겠어요. 이 사진은 잘 넣어 둘게요. 이 사진 이야기는 꺼내지 않을게요.';
-    ui.subtitle.textContent = line;
-    addMessage('bot', line);
-    avatar.setEmotion('neutral');
-    avatar.playGesture('nod');
-    await speak(line, 'neutral', 'talk');
-    return;
-  }
+  // 등록은 여기서 끝난다. 사진은 접는다. "이야기하고 싶지 않아요" 면 추천에서도 빠진다.
+  showMemory(null, { preview: true });
+  ui.memoryPhoto.removeAttribute('src');
 
-  state.busy = true;
-  ui.attach.disabled = true;
-  ui.send.disabled = true;
-  try {
-    if (!state.sessionStart) state.sessionStart = Date.now();
-    showMemory(saved);
-    await startSession(saved.memory_id);
-    scheduleAutoClose();
-
-    /* 사진을 보여 드렸다는 사실을 대화 기록에도 남긴다.
-       이 자리에 사진이 붙어 모델에게 전해진다. */
-    const shown = '(사진을 한 장 보여 드렸어요)';
-    state.history.push({ role: 'user', content: shown });
-    saveHistory();
-    noteTurn({ role: 'user', text: shown });
-
-    setStatus('thinking', `${subject(charName())} 사진을 보고 있어요`);
-    await askAboutPhoto();
-  } finally {
-    state.busy = false;
-    ui.attach.disabled = false;
-    ui.send.disabled = false;
-  }
+  const line = choice.avoid
+    ? '알겠어요. 이 사진은 잘 넣어 둘게요. 이 사진 이야기는 꺼내지 않을게요.'
+    : `${STAR_WORD[choice.importance] || '소중한'} 사진으로 잘 넣어 두었어요. 사진 보며 옛이야기 나누고 싶으실 때 기억 회상 지원을 눌러 주세요.`;
+  ui.subtitle.textContent = line;
+  addMessage('bot', line);
+  avatar.setEmotion(choice.avoid ? 'neutral' : 'happy');
+  avatar.playGesture('nod');
+  await speak(line, choice.avoid ? 'neutral' : 'happy', 'talk');
 }
 
 ui.rate.addEventListener('click', (e) => {
@@ -1265,12 +1225,53 @@ document.addEventListener('paste', (e) => {
   if (item) attachPhoto(item.getAsFile());
 });
 
+/* ==================================================================
+ *  기억 회상 지원
+ *
+ *  ① 사진으로 회상 단서 제공 → ② 열린 질문 → ③ 경청 · 반영
+ *  → ④ 필요할 때만 추가 질문이나 단서 → ⑤ 기억을 강요하거나 정정하지 않기
+ *
+ *  ①② 는 여기서 한다 — 점수가 가장 높은 사진을 띄우고 고정된 첫 물음으로 연다.
+ *  ③~⑤ 는 서버의 대화 규칙이 맡는다 (server.js 회상 대화 알고리즘).
+ * ================================================================== */
+
 /**
- * 사진 이야기를 시작한다.
- * 문서 4번대로 처음 한 번만 개방형 질문을 던지고, 그 뒤로는 평소 규칙을 따른다.
+ * 사진 한 장을 띄우고 고정된 첫 물음으로 회상을 연다.
+ * fresh — [기억 회상 지원] 을 새로 누르신 것. '다른 사진' 으로 넘어갈 때는 false 라,
+ *   방금 띄운 '기억으로 남길까요' 칸을 닫지 않는다.
  */
-async function startMemoryTalk() {
+async function openRecall(memory, { fresh = false } = {}) {
+  if (fresh) hideKeep();
+  showMemory(memory);
+  if (!state.sessionStart) state.sessionStart = Date.now();
+  await startSession(memory.memory_id);
+
+  const line = RECALL_OPENING;
+  ui.subtitle.textContent = line;
+  addMessage('bot', line);
+  state.history.push({ role: 'assistant', content: line });
+  noteTurn({ role: 'assistant', text: line, response_mode: 'FOLLOW_UP', asked_question: true });
+  state.lastReply = { text: line, emotion: 'happy', mode: 'talk' };
+  saveHistory();
+
+  avatar.setEmotion('happy');
+  avatar.playGesture('nod');
+  scheduleAutoClose();
+  speak(line, 'happy', 'talk');
+}
+
+/** [기억 회상 지원] 을 누르셨을 때 */
+async function startRecall() {
   ensureAudio();
+  if (state.busy || state.listening) {
+    toast('잠깐만요, 지금은 이야기하는 중이에요.');
+    return;
+  }
+  cancelRating();
+
+  /* 새로 시작하는 회상이다. 지난번에 본 사진도 다시 후보에 올린다
+     (최근에 나온 사진은 추천 점수에서 이미 깎인다). 오 분도 여기서부터 잰다. */
+  state.seenMemories = [];
   let memory;
   try {
     memory = await pickMemory();
@@ -1280,27 +1281,51 @@ async function startMemoryTalk() {
   }
 
   if (!memory) {
-    toast('아직 등록된 사진이 없어요.');
+    const line = '아직 함께 볼 사진이 없어요. 아래 더하기 모양 사진 버튼으로 사진을 올려 주시면, 그 사진을 보며 이야기 나눠요.';
+    ui.subtitle.textContent = line;
+    addMessage('bot', line);
+    avatar.setEmotion('thinking');
+    avatar.playGesture('tilt');
+    speak(line, 'neutral', 'talk');
     return;
   }
 
-  hideKeep();
-  showMemory(memory);
-  if (!state.sessionStart) state.sessionStart = Date.now();
-  await startSession(memory.memory_id);
+  stopSpeaking();
+  state.sessionStart = Date.now();
+  await openRecall(memory, { fresh: true });
+}
 
-  const opening = openingLineFor(memory);
+/**
+ * 다른 사진으로 — 지금 사진에서 들은 이야기를 먼저 여쭙고 넘어간다.
+ * 넘어갔으면 true, 더 볼 사진이 없으면 false.
+ */
+async function nextRecallPhoto() {
+  let memory;
+  try {
+    memory = await pickMemory();
+  } catch {
+    toast('사진을 불러오지 못했어요.');
+    return true;   // 까닭은 이미 알려 드렸다
+  }
+  if (!memory) return false;
 
-  ui.subtitle.textContent = opening;
-  addMessage('bot', opening);
-  state.history.push({ role: 'assistant', content: opening });
-  state.lastReply = { text: opening, emotion: 'happy', mode: 'talk' };
+  clearTimeout(closeTimer);
+  await askToKeep(state.memory ? state.memory.memory_id : null, state.sessionId);
+  await closeSession('USER');
+  await openRecall(memory);
+  return true;
+}
+
+/** 오늘 볼 사진을 다 보셨을 때. 사진은 그대로 두고 고르시게 한다 */
+function sayNoMorePhotos() {
+  const line = '오늘 함께 볼 사진은 다 봤어요. 이 사진 이야기를 조금 더 나누셔도 되고, 그만 보셔도 괜찮아요.';
+  ui.subtitle.textContent = line;
+  addMessage('bot', line);
+  state.history.push({ role: 'assistant', content: line });
+  state.lastReply = { text: line, emotion: 'happy', mode: 'talk' };
   saveHistory();
-
   avatar.setEmotion('happy');
-  avatar.playGesture('nod');
-  speak(opening, 'happy', 'talk');
-  scheduleAutoClose();
+  speak(line, 'happy', 'talk');
 }
 
 async function stopMemoryTalk() {
@@ -1320,31 +1345,15 @@ async function stopMemoryTalk() {
   }
 }
 
-ui.photo.addEventListener('click', () => {
+ui.recall.addEventListener('click', () => {
   if (state.memory) stopMemoryTalk();
-  else startMemoryTalk();
+  else startRecall();
 });
 
 ui.closePhoto.addEventListener('click', stopMemoryTalk);
 
 ui.nextPhoto.addEventListener('click', async () => {
-  const memory = await pickMemory();
-  if (!memory) { toast('더 볼 사진이 없어요.'); return; }
-
-  // 지금 사진에서 들은 이야기를 먼저 여쭙고 넘어간다
-  await askToKeep(state.memory ? state.memory.memory_id : null, state.sessionId);
-  await closeSession('USER');
-  await startSession(memory.memory_id);
-  showMemory(memory);
-  scheduleAutoClose();
-
-  const line = openingLineFor(memory, true);
-  ui.subtitle.textContent = line;
-  addMessage('bot', line);
-  state.history.push({ role: 'assistant', content: line });
-  state.lastReply = { text: line, emotion: 'happy', mode: 'talk' };
-  saveHistory();
-  speak(line, 'happy', 'talk');
+  if (!(await nextRecallPhoto())) sayNoMorePhotos();
 });
 
 /* ==================================================================

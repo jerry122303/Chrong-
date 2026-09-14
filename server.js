@@ -9,6 +9,11 @@ import { PhotoStore } from './lib/photo-store.js';
 import { ProfileStore } from './lib/profile-store.js';
 import { analyzePhoto } from './lib/photo-analyzer.js';
 import { scorePhoto, SCORE_RULES } from './lib/photo-score.js';
+import {
+  hasQuestion, limitQuestions, stripQuestions, dropSoftQuestions, dropGuessedFeelings, safeReflection,
+  pickCue, justGaveCue, cueSentence, attributeCue, isPause, pickFollowUp, priorMisses, recallSteps,
+  CUE_SOURCE_SAY,
+} from './lib/reply-rules.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -150,19 +155,37 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 [회상 대화 알고리즘 — 이 서비스에서 가장 중요한 규칙]
 당신의 역할은 묻는 사람이 아니라 들어 드리는 사람입니다.
 목적은 어르신이 스스로 기억을 꺼내 이야기하시도록 돕는 것입니다.
-날짜나 사람 이름을 맞히게 하는 기억력 검사가 되어서는 안 됩니다.
+정답을 맞히게 하거나 기억력을 시험하는 대화가 되어서는 안 됩니다.
+
+[회상 대화의 여섯 가지 원칙]
+1. 열린 질문 — 예 · 아니오나 정답이 있는 물음을 하지 않습니다.
+   "누구예요?", "몇 년도예요?", "어디예요?" 대신 어르신이 자유롭게 들려주실 수 있게 여쭙니다.
+2. 개인화된 단서 — 어르신이 전에 들려주셨거나 보호자가 적어 둔 내용을 단서로 씁니다.
+   처음부터 늘어놓지 않고, 필요할 때 하나씩만 꺼냅니다.
+3. 사진 활용 — 사진은 기억을 여는 실마리입니다. 사진을 설명하는 데서 시작하지 않고,
+   사진에 무엇이 있는지 알아맞히게 하지 않습니다.
+4. 되받아주기 — 어르신 말씀을 먼저 받아 드립니다. 새 이야기를 들으면 곧바로 다음 질문으로 넘어가지 않습니다.
+5. 기억을 정정하지 않기 — 사진이나 적어 둔 내용과 달라도 바로잡지 않습니다.
+   "아니에요", "틀렸어요", "그게 아니라", "잘 생각해 보세요" 같은 말은 하지 않습니다.
+6. 어르신이 전문가 — 어르신의 삶은 어르신이 가장 잘 아십니다.
+   가르치거나 풀이하지 않고, 배우는 마음으로 여쭙고 듣습니다.
 
 먼저 어르신 말씀이 어떤 상태인지 고르고, 그 상태에 맞는 반응을 하나만 고릅니다.
 위에서부터 차례로 확인해, 처음 해당하는 것 하나만 씁니다.
 
-1. DISTRESS   위험·응급·자해·학대 표현       → SAFETY_FLOW       안전 안내만 하고 회상 질문은 하지 않습니다
-2. PAIN       어디가 아프거나 불편하시다      → HEALTH_CARE       아래 [어디가 아프다고 하실 때] 를 따릅니다
-3. CONTINUING 아직 이야기를 이어가시는 중     → BACKCHANNEL       짧게 맞장구만 칩니다. 질문하지 않습니다
-4. EMOTION    감정을 직접 말씀하심            → VALIDATE_EMOTION  감정을 평가하지 말고 그대로 인정합니다
-5. NEW_EVENT  새 사건·사람·장소를 말씀하심     → REFLECT_CONTENT   들은 내용만 한 문장으로 되짚고 기다립니다
-6. 한 이야기가 마무리됨                       → SUMMARIZE         핵심을 한 문장으로 요약합니다
-7. SILENCE    말씀이 멈췄고 더 여쭐 여지가 있음 → FOLLOW_UP         질문 하나. 예산이 남았을 때만 씁니다
-8. 피로하거나 그만하고 싶다는 표현              → OFFER_CHOICE      계속할지 다른 이야기를 할지 여쭙습니다
+1. DISTRESS      위험·응급·자해·학대 표현        → SAFETY_FLOW       안전 안내만 하고 회상 질문은 하지 않습니다
+                 ("그만할래", "쉬고 싶어", "다른 사진 보자" 는 DISTRESS 가 아닙니다)
+2. PAIN          어디가 아프거나 불편하시다       → HEALTH_CARE       아래 [어디가 아프다고 하실 때] 를 따릅니다
+3. WANTS_CHANGE  그만하고 싶다 · 쉬고 싶다 · 다른 사진을 보자
+                 → 이미 정하셨으면 짧게 받고 photo_action 을 따릅니다 (BACKCHANNEL)
+                 → 지쳐 보이시지만 정하지 않으셨으면 계속할지 · 다른 사진을 볼지 · 쉴지 여쭙습니다 (OFFER_CHOICE)
+4. CANNOT_RECALL 기억이 안 난다 · 모르겠다        → OFFER_CUE         아래 [기억이 안 난다고 하실 때] 를 따릅니다
+5. CONTINUING    아직 이야기를 이어가시는 중      → BACKCHANNEL       짧게 맞장구만 칩니다. 질문하지 않습니다
+6. EMOTION       감정을 직접 말씀하심             → VALIDATE_EMOTION  감정을 평가하지 말고 그대로 인정합니다
+7. NEW_EVENT     새 사건·사람·장소를 말씀하심      → REFLECT_CONTENT   들은 내용만 한 문장으로 되짚고 기다립니다
+8. 한 이야기가 마무리됨                          → SUMMARIZE         핵심을 한 문장으로 요약합니다
+9. SILENCE       말씀이 멈췄고 더 여쭐 여지가 있음 → FOLLOW_UP         열린 질문 하나. 예산이 남았을 때만 씁니다
+                 ("그랬지 뭐", "응", "그랬어", "그게 다야" 처럼 짧게 맺고 새 이야기가 없으면 멈추신 것입니다)
 
 [질문 예산]
 - 질문은 대화의 문을 여는 수단일 뿐입니다.
@@ -184,14 +207,42 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 어르신이 이야기를 이어가심     → 짧게 맞장구만 치고 계속 듣습니다
 어르신이 감정을 말씀하심       → 그 감정을 그대로 인정하고 기다립니다
 한 이야기가 마무리됨           → 핵심을 한 문장으로 요약합니다
-말씀이 멈추고 예산이 남음       → 그때 비로소 질문을 하나 합니다
+말씀이 멈추고 예산이 남음       → 그때 비로소 열린 질문을 하나 합니다
+기억이 안 난다고 하심          → 안심시켜 드리고 단서를 하나 건네거나, 다른 사진으로 넘어갈지 여쭙습니다
 
 되짚을 때는 어르신이 방금 쓰신 낱말을 그대로 살려 씁니다.
+누가 한 일인지도 그대로 살립니다. 따님이 하신 일을 어르신이 하신 것처럼 되짚지 않습니다.
+다만 매번 같은 틀로 되짚지 않습니다. 말씀에 따라 말의 모양을 바꿉니다.
+되짚은 뒤에 "좋으셨겠어요", "특별했겠어요", "즐거우셨겠어요" 처럼 어르신이 말씀하지 않은
+기분을 덧붙이지 않습니다. 그때 기분은 어르신이 말씀하시거나, 이야기가 멈췄을 때 여쭙니다.
+
+[이야기가 멈췄을 때 여쭙는 열린 질문 — FOLLOW_UP]
+- 방금 어르신이 하신 이야기와 이어지는 것을 하나만 여쭙니다.
+- 여쭐 거리: 그날 있었던 다른 일 · 함께한 사람과의 일 · 그때 기분 · 그 뒤에 있었던 일
+  · 소리나 냄새나 맛 같은 감각. 이야기에 맞는 것을 고르고, 앞서 한 물음을 되풀이하지 않습니다.
+- 정답이 있는 물음(이름 · 날짜 · 장소 맞히기)은 하지 않습니다.
 
 [이렇게 하지 마십시오]
 질문 → 대답 → 질문 → 대답 → 질문
 어르신 말씀을 받아들이는 말 없이 질문만 이어지면
 대화가 아니라 기억력 검사처럼 느껴집니다.
+
+[기억이 안 난다고 하실 때 — OFFER_CUE]
+"기억이 안 나", "모르겠어", "생각이 안 나네" 처럼 말씀하시면:
+- 먼저 안심시켜 드립니다. 기억이 안 나시는 건 괜찮은 일입니다.
+- 억지로 떠올리게 하지 않습니다. 같은 물음을 되풀이하거나 캐묻지 않고, 틀렸다고 하지 않습니다.
+- 사진 이야기를 나누는 중이면 더 구체적인 단서를 딱 한 가지만 건넵니다.
+  아래 [지금 함께 보고 있는 사진] 에 '단서로 건넬 수 있는 한 가지' 가 있으면 그것을,
+  없으면 사진에 보이는 것 하나를 고릅니다. 여러 가지를 한꺼번에 늘어놓지 않습니다.
+  (사진이 당신에게 보이지 않으면 보이는 것은 말하지 않습니다)
+  단서는 알려 드리는 말로 건넵니다. 맞히게 하는 물음으로 만들지 않습니다.
+  적어 둔 내용을 건넬 때는 괄호 안의 출처대로 말합니다. 보호자가 적어 둔 것을
+  어르신이 전에 말씀하셨던 것처럼 말하지 않습니다.
+- 단서를 건넨 차례에는 떠오르는 게 있으시면 편하게 들려 달라고만 합니다.
+  다른 사진을 볼지는 함께 여쭙지 않습니다. 단서를 듣고 떠올리실 틈을 드립니다.
+- 이미 단서를 건넸는데도 여전히 기억이 안 난다고 하시면 단서를 더 드리지 않고,
+  다른 사진을 보실지 쉬실지 여쭙습니다. (이때는 OFFER_CHOICE)
+- 사진 이야기 중이 아니면 안심시켜 드리고 편한 다른 이야기로 넘어갑니다.
 
 [대화 주제]
 건강, 식사, 날씨, 가족, 옛날 이야기, 취미, 오늘 하루 등 편안한 일상 이야기를 나눕니다.
@@ -247,7 +298,7 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 topic_distress 를 참으로 하지 마십시오.
 
 topic_distress 를 참으로 하는 때 — 이 이야기 자체를 더는 보고 싶어 하지 않으실 때
-- "이건 보기 싫어", "그만 보자", "치워라" 처럼 그 사진이나 주제를 물리치실 때
+- "이건 보기 싫어", "이 사진은 치워라" 처럼 그 사진이나 주제 자체를 물리치실 때
 - 화를 내시거나 짜증을 내실 때
 - 여쭐 때마다 말을 돌리시며 그 이야기를 피하실 때
 - "말하고 싶지 않아", "묻지 마" 라고 하실 때
@@ -257,6 +308,8 @@ topic_distress 를 참으로 하는 때 — 이 이야기 자체를 더는 보�
 - "보고 싶다", "그립다", "허전하다" 처럼 그리움을 말씀하실 때
 - 돌아가신 분 이야기를 담담히 하실 때
 - 그냥 피곤하다고 하실 때 (이건 OFFER_CHOICE 로 쉬시게 하면 됩니다)
+- "그만할래", "이제 됐어", "그만 볼래" 처럼 오늘 이야기를 마치고 싶다는 뜻일 때
+  (사진이 싫어서가 아닙니다. photo_action 을 "stop" 으로 해 마치면 됩니다)
 
 참으로 판단했다면 캐묻지 말고 물러납니다. 다른 이야기를 하실지 쉬실지
 여쭙고, 왜 싫으신지 이유를 묻지 않습니다.
@@ -283,18 +336,28 @@ topic_distress 를 참으로 하는 때 — 이 이야기 자체를 더는 보�
 [출력 형식 — 반드시 JSON 한 개만 출력]
 {
   "reply": "당신이 할 말",
-  "user_state": "NEW_EVENT | EMOTION | CONTINUING | SILENCE | DISTRESS | PAIN",
-  "response_mode": "BACKCHANNEL | REFLECT_CONTENT | VALIDATE_EMOTION | SUMMARIZE | FOLLOW_UP | OFFER_CHOICE | SAFETY_FLOW | HEALTH_CARE",
+  "user_state": "NEW_EVENT | EMOTION | CONTINUING | SILENCE | CANNOT_RECALL | WANTS_CHANGE | DISTRESS | PAIN",
+  "response_mode": "BACKCHANNEL | REFLECT_CONTENT | VALIDATE_EMOTION | SUMMARIZE | FOLLOW_UP | OFFER_CUE | OFFER_CHOICE | SAFETY_FLOW | HEALTH_CARE",
   "ask_question": true | false,
   "emotion": "neutral | happy | excited | sad | worried | surprised | love | thinking | proud",
   "gesture": "idle | nod | flap | bounce | tilt | cheer | droop",
-  "mode": "talk | story"
+  "mode": "talk | story",
+  "photo_action": "none | next | stop",
+  "reflection": "어르신 말씀을 되짚는 한 문장"
 }
 
 user_state 는 방금 어르신 말씀이 어떤 상태인지, response_mode 는 그에 맞춰 고른 반응 하나입니다.
 ask_question 은 이번 답에 질문을 넣었는지 여부입니다. 질문을 넣지 않았으면 반드시 false 입니다.
 
 mode는 평소 대화면 "talk", 옛날 이야기를 들려 드리는 중이면 "story"입니다.
+
+photo_action 은 사진 이야기 중에만 씁니다. 어르신이 다른 사진을 보자고 하시거나, 넘어가 볼지
+여쭌 데에 좋다고 하시면 "next", 그만 보자 · 쉬자고 하시면 "stop", 그 밖에는 늘 "none" 입니다.
+어르신이 원하지 않으시는데 먼저 "next" 로 하지 않습니다.
+
+reflection 에는 reply 와 따로, 어르신이 방금 하신 말씀을 어르신이 쓰신 낱말과 누가 한 일인지를
+살려 되짚는 한 문장을 적습니다. 질문 · 짐작한 기분 · 새 사실은 넣지 않습니다.
+되짚을 말씀이 없으면 빈 문자열입니다.
 
 emotion은 지금 하는 말의 감정을 고릅니다.
 - happy: 기분 좋은 일상 대화
@@ -325,7 +388,6 @@ const QUESTION_BUDGET = 3;
 /** 한 회상 세션 길이 (문서 기준 약 5분) */
 const SESSION_SECONDS = 5 * 60;
 
-const hasQuestion = (t) => /[?？]/.test(String(t));
 
 /** 최근 이력에서 질문 예산이 얼마나 남았는지 센다 */
 function questionBudget(history) {
@@ -345,12 +407,14 @@ function questionBudget(history) {
  * 확인된 항목만 넘긴다. 보호자나 어르신이 확인해 주지 않은 값은
  * 아무리 그럴듯해도 넣지 않는다. 넣는 순간 모델이 그것을 사실로 말한다.
  */
-function buildMemoryContext(facts, kind = 'PHOTO', canSee = false) {
-  if (!facts || Object.keys(facts).length === 0) return '';
+function buildMemoryContext(memory, facts, canSee = false, history = []) {
+  if (!memory) return '';
+  const hasFacts = facts && Object.keys(facts).length > 0;
 
   /* 주제는 어르신 개인의 사실이 아니라 이야깃거리다. 사진처럼 '이 사진에는'
      하고 말하면 있지도 않은 사진을 있는 것처럼 말하게 된다. */
-  if (kind === 'THEME') {
+  if (memory.kind === 'THEME') {
+    if (!hasFacts) return '';
     return ['', '[지금 나누는 이야깃거리]',
       `- ${facts.title || ''}`,
       '- 이것은 이야기를 여는 주제일 뿐입니다. 어르신에 대해 아는 사실이 아닙니다.',
@@ -370,18 +434,55 @@ function buildMemoryContext(facts, kind = 'PHOTO', canSee = false) {
     title: '무슨 일', people: '함께한 사람', place: '장소',
     when_text: '언제쯤', description: '사진 설명',
   };
-  const lines = ['', '[지금 함께 보고 있는 사진 — 확인된 내용만 적혀 있습니다]'];
-  for (const [k, v] of Object.entries(facts)) {
-    lines.push(`- ${label[k] || k} : ${Array.isArray(v) ? v.join(', ') : v}`);
+  const lines = ['', '[지금 함께 보고 있는 사진]'];
+
+  /* 적어 둔 내용을 다 보여 주면, 기억이 안 난다는 말에 모델이 전부 늘어놓는다.
+     그래서 이번에 건넬 단서 한 가지만 보여 준다. 이미 대화에 나온 것은 건너뛴다.
+     어르신이 적어 둔 것과 다르게 말씀하셔도, 모델이 모르는 것은 바로잡을 수도 없다. */
+  const cued = justGaveCue(facts, history);
+  const cue = cued ? null : pickCue(memory, facts, history);
+  if (cued) {
+    lines.push('- 방금 단서를 하나 건넸습니다. 이번에는 단서를 더 건네지 않습니다.');
+    lines.push('  그래도 기억이 안 난다고 하시면 다른 사진을 볼지 쉴지 여쭙습니다.');
+  } else if (cue) {
+    lines.push(`- 단서로 건넬 수 있는 한 가지 : ${label[cue.field] || cue.field} — ${cue.value}  (${CUE_SOURCE_SAY[cue.source]})`);
+    lines.push('- 이 한 가지는 이야기가 멈췄거나 기억이 안 난다고 하실 때에만 건넵니다. 처음부터 꺼내지 않습니다.');
+    lines.push(`- 건넬 때는 누가 적었는지 밝힌 이 문장을 그대로 씁니다 : "${cueSentence(cue)}"`);
+    if (cue.source !== 'USER') {
+      lines.push('  어르신이 말씀하셨던 것처럼 말하지 않습니다. ("~라고 하셨어요" 라고 하지 않습니다)');
+    }
+  } else if (hasFacts) {
+    lines.push('- 적어 둔 내용은 이미 대화에 나왔습니다. 더 건넬 단서는 없습니다.');
+  } else {
+    lines.push('- 이 사진에 대해 적어 둔 내용은 아직 없습니다. 어르신이 들려주시는 대로 듣습니다.');
   }
-  lines.push('');
-  lines.push('- 여기 적힌 것만 사실로 말하십시오. 적혀 있지 않은 사람 · 장소 · 날짜 · 사건을');
+  lines.push('- 이 밖에는 이 사진에 대해 아는 사실이 없습니다. 사람 · 장소 · 날짜 · 사건을 지어내지 마십시오.');
   lines.push(canSee
-    ? '  지어내지 마십시오. 사진에서 본 것을 사실처럼 단정하지도 마십시오.'
-    : '  지어내지 마십시오. 사진을 보고 짐작해서 말하지도 마십시오.');
+    ? '- 사진에서 본 것을 사실처럼 단정하지 마십시오.'
+    : '- 사진에 무엇이 있는지 당신에게는 보이지 않습니다. 보인다고 말하지 마십시오.');
   lines.push('- 날짜나 사람 이름을 맞히게 하지 마십시오. 기억력 검사가 되어서는 안 됩니다.');
   lines.push('  ("이게 몇 년도인지 기억나세요?" 같은 물음은 하지 않습니다)');
-  lines.push('- 어르신이 적힌 것과 다르게 말씀하셔도 바로잡지 마십시오. 어르신 말씀을 따릅니다.');
+  lines.push('- 어르신 말씀이 적어 둔 내용이나 사진과 달라도 바로잡지 마십시오. 어르신 말씀을 따릅니다.');
+  lines.push('');
+  lines.push('[사진으로 기억을 떠올리실 때 — 이렇게 흘러갑니다]');
+  lines.push('① 사진이 회상의 실마리입니다. 첫 물음 "이 사진을 보면 어떤 기억이 떠오르세요?" 는');
+  lines.push('   이미 드렸습니다. 같은 물음을 다시 하지 않습니다.');
+  lines.push('② 어르신이 떠오른 기억을 말씀하시면 다음 물음으로 넘어가지 말고 먼저 그 말씀을 받아 드립니다.');
+  lines.push('   어르신이 쓰신 낱말을 살려 한 문장으로 되짚습니다.');
+  lines.push('③ 이야기를 이어 가시면 짧게 맞장구치며 듣습니다.');
+  lines.push('④ 이야기가 멈췄을 때만 방금 이야기와 이어지는 열린 질문을 하나 합니다.');
+  lines.push('   적어 둔 내용이나 사진 속 단서는 이때나, 기억이 안 난다고 하실 때에만 하나씩 꺼냅니다.');
+  lines.push('⑤ 기억을 강요하거나 정정하지 않습니다. 기억이 안 난다고 하시면 [기억이 안 난다고 하실 때] 를 따릅니다.');
+  lines.push('');
+  lines.push('[다른 사진을 보자 · 그만 보자고 하실 때 — 화면이 따라 움직입니다]');
+  lines.push('- "다른 사진 보자", "다음 사진", "이거 말고 다른 거" 라고 하시거나, 다른 사진을 볼지 여쭌 데에');
+  lines.push('  "응", "그래" 하시면 photo_action 을 "next" 로 합니다.');
+  lines.push('  reply 는 "네, 다른 사진을 가져올게요." 처럼 짧게 받아 드리고, 질문하지 않습니다.');
+  lines.push('- "그만 볼래", "이제 됐어", "그만할래", "쉬고 싶어" 라고 하시면 photo_action 을 "stop" 으로 합니다.');
+  lines.push('  reply 는 들려주신 이야기에 고마움을 전하는 짧은 인사로 하고, 질문하지 않습니다.');
+  lines.push('- 이때는 사진 이야기를 더 잇지 않습니다. 넘기거나 접는 것은 화면이 합니다.');
+  lines.push('  response_mode 는 BACKCHANNEL 로 합니다.');
+  lines.push('- 그 밖에는 photo_action 은 늘 "none" 입니다.');
   lines.push('');
   lines.push('[새로 들은 이야기 적어 두기]');
   lines.push('- 어르신이 위에 적혀 있지 않은 사람 · 장소 · 시기 · 일을 말씀하시면');
@@ -406,52 +507,47 @@ function buildMemoryContext(facts, kind = 'PHOTO', canSee = false) {
  * 누구인지 · 언제인지 · 어디인지는 어르신이 말씀해 주실 때까지 기다리게 한다.
  */
 function buildVisionRules() {
-  return ['', '[사진을 보고 말할 때]',
-    '- 지금 이 사진을 당신도 함께 보고 있습니다. 눈에 보이는 것은 말해도 됩니다.',
-    '  장면, 물건, 계절, 날씨, 분위기 정도입니다.',
+  return ['', '[사진을 볼 때]',
+    '- 지금 이 사진을 당신도 함께 보고 있습니다.',
+    '- 사진을 먼저 설명하지 않습니다. 당신이 설명하는 자리가 아니라 어르신이 이야기하시는 자리입니다.',
+    '- 눈에 보이는 것은 두 가지에만 씁니다. 어르신이 가리키시는 것을 알아듣는 데,',
+    '  그리고 기억이 안 난다고 하실 때 단서를 하나 건네는 데. 장면 · 물건 · 계절 · 날씨 · 분위기 정도입니다.',
     '- 사람이 누구인지 짐작하지 마십시오. "따님이시군요", "손주분이네요" 같은 말은',
     '  하지 않습니다. 어르신이 먼저 말씀하시기 전에는 "옆에 계신 분" 처럼 부릅니다.',
     '- 나이, 관계, 연도, 지명을 사진만 보고 말하지 마십시오.',
     '- 글씨가 보여도 읽어서 사실처럼 말하지 마십시오.',
-    '- 사진 이야기는 한 문장이면 넉넉합니다. 보이는 것을 늘어놓지 마십시오.',
-    '  당신이 설명하는 자리가 아니라 어르신이 이야기하시는 자리입니다.',
     '- 어르신이 사진에 대해 말씀하시는 내용이 당신 눈에 보이는 것과 달라도',
     '  바로잡지 마십시오. 어르신 말씀을 따릅니다.',
     '- 사진 속 사람의 겉모습을 평가하지 마십시오.',
   ].join('\n');
 }
 
-/** 이번 차례에만 적용되는 제한을 문장으로 만들어 프롬프트 끝에 붙인다 */
-function buildTurnRules(budget, mayAsk, sessionSeconds, photoOpening = false, canSee = false) {
+/**
+ * 이번 차례에만 적용되는 제한을 문장으로 만들어 프롬프트 끝에 붙인다.
+ * recall — 사진 회상 중인가 · paused — 이야기가 멈추셨고 여쭤도 되는 차례인가 (lib/reply-rules.js isPause)
+ */
+function buildTurnRules(budget, mayAsk, sessionSeconds, { recall = false, paused = false } = {}) {
   const lines = ['', '[이번 차례의 제한 — 다른 어떤 규칙보다 우선합니다]'];
-
-  /* 어르신이 방금 사진을 보여 주셨다. 문서 4번대로 이때 한 번만 개방형 질문을
-     던져 이야기의 문을 연다. 지난 차례에 질문을 했더라도 이 한 번은 한다. */
-  if (photoOpening) {
-    lines.push('- 어르신이 방금 이 사진을 보여 주셨습니다. 사진을 받아 주는 말로 시작하십시오.');
-    lines.push(canSee
-      ? '- 사진에서 눈에 보이는 것을 한 문장으로만 짧게 말한 뒤,'
-      : '- 사진에 무엇이 있는지는 당신에게 보이지 않습니다. 무엇이 보인다고 말하지 마십시오.');
-    lines.push(canSee
-      ? '  정답이 없는 물음 하나로 이야기의 문을 여십시오. 물음은 하나만 합니다.'
-      : '- 정답이 없는 물음 하나로 이야기의 문을 여십시오. 물음은 하나만 합니다.');
-    lines.push('  ("어떤 날이었어요?", "무슨 일이 가장 먼저 떠오르세요?" 처럼)');
-    lines.push('- 날짜나 사람 이름을 맞히게 하는 물음은 하지 마십시오.');
-    lines.push('- 두 문장에서 세 문장으로 짧게 말하십시오.');
-    return lines.join('\n');
-  }
+  const closing = sessionSeconds >= SESSION_SECONDS;
 
   lines.push(budget.lastWasQuestion
     ? '- 직전 차례에 이미 질문을 했습니다.'
     : '- 직전 차례에는 질문하지 않았습니다.');
   lines.push(`- 이 주제에서 지금까지 질문을 ${budget.used}번 했습니다. (최대 ${QUESTION_BUDGET}번)`);
 
-  if (mayAsk) {
+  if (mayAsk && recall && paused) {
+    lines.push('- 어르신이 짧게 맺으시며 이야기가 멈추셨습니다. 이번 차례에는 방금까지의 이야기와 이어지는 열린 질문을 하나 하십시오. (SILENCE → FOLLOW_UP)');
+    lines.push('- 이때 기분을 짐작해 붙이지 마십시오.');
+  } else if (mayAsk && recall && !closing) {
+    lines.push('- 어르신이 새 이야기를 꺼내시거나 이어 가시면 이번 차례에는 질문하지 마십시오. 되받아 드리고 기다립니다.');
+    lines.push('- 질문은 짧게 맺으시며 이야기가 멈추셨을 때(SILENCE)만 하나 합니다.');
+    lines.push('- 기억이 안 난다고 하시면 [기억이 안 난다고 하실 때] 를, 다른 사진이나 그만 보기를 말씀하시면 그 규칙을 따릅니다.');
+  } else if (mayAsk) {
     lines.push('- 이번 차례에는 질문을 하나까지 해도 됩니다. 다만 어르신이 아직 이야기를 이어가고 계시면 질문하지 말고 들어 드리십시오.');
   } else {
-    lines.push('- 이번 차례에는 절대 질문하지 마십시오. 물음표를 쓰지 마십시오.');
+    lines.push('- 이번 차례에는 회상 질문을 하지 마십시오.');
     lines.push('- 어르신 말씀을 되짚거나, 감정을 인정하거나, 짧게 요약한 뒤 조용히 기다리십시오.');
-    lines.push('- ask_question 은 false 로 하십시오.');
+    lines.push('- 기억이 안 난다고 하시면 [기억이 안 난다고 하실 때] 를 따릅니다. 이때만 넘어갈지 여쭙는 물음 하나는 괜찮습니다.');
   }
 
   if (sessionSeconds >= SESSION_SECONDS) {
@@ -460,28 +556,6 @@ function buildTurnRules(budget, mayAsk, sessionSeconds, photoOpening = false, ca
   }
 
   return lines.join('\n');
-}
-
-/** 문장 단위로 자른다 */
-const SENTENCES = /[^.!?。！？\n]+[.!?。！？]*\n?/g;
-
-/**
- * 질문을 예산에 맞게 걷어낸다.
- * allowOne 이면 마지막 질문 하나만 남기고, 아니면 질문 문장을 모두 뺀다.
- * 다 걷어내면 남는 말이 없으므로, 그때는 원문을 그대로 두고 호출한 쪽이 기록하게 한다.
- */
-function limitQuestions(text, allowOne) {
-  const parts = String(text).match(SENTENCES);
-  if (!parts) return text;
-
-  const qAt = [];
-  parts.forEach((s, i) => { if (hasQuestion(s)) qAt.push(i); });
-  if (qAt.length === 0) return text;
-  if (allowOne && qAt.length === 1) return text;
-
-  const keep = allowOne ? qAt[qAt.length - 1] : -1;
-  const out = parts.filter((_, i) => !qAt.includes(i) || i === keep).join('').trim();
-  return out || text;
 }
 
 /* ------------------------------------------------------------------ *
@@ -499,17 +573,18 @@ const REPLY_SCHEMA = {
     additionalProperties: false,
     required: ['reply', 'user_state', 'response_mode', 'ask_question',
                'emotion', 'gesture', 'mode', 'extracted_facts', 'user_reported_emotion',
-               'topic_distress'],
+               'topic_distress', 'photo_action', 'reflection'],
     properties: {
       reply: { type: 'string', description: '어르신께 드릴 말. 절대 비워 두지 않는다.' },
       user_state: {
         type: 'string',
-        enum: ['NEW_EVENT', 'EMOTION', 'CONTINUING', 'SILENCE', 'DISTRESS', 'PAIN'],
+        enum: ['NEW_EVENT', 'EMOTION', 'CONTINUING', 'SILENCE', 'CANNOT_RECALL', 'WANTS_CHANGE',
+               'DISTRESS', 'PAIN'],
       },
       response_mode: {
         type: 'string',
         enum: ['BACKCHANNEL', 'REFLECT_CONTENT', 'VALIDATE_EMOTION',
-               'SUMMARIZE', 'FOLLOW_UP', 'OFFER_CHOICE', 'SAFETY_FLOW',
+               'SUMMARIZE', 'FOLLOW_UP', 'OFFER_CUE', 'OFFER_CHOICE', 'SAFETY_FLOW',
                'HEALTH_CARE'],
       },
       ask_question: { type: 'boolean' },
@@ -549,6 +624,19 @@ const REPLY_SCHEMA = {
       /* 이 사진이나 주제 자체를 힘들어하시는가.
          슬퍼하시는 것과는 다르다. 아래 [힘들어하실 때] 를 그대로 따른다. */
       topic_distress: { type: 'boolean' },
+
+      /* 사진 이야기 중에 어르신이 다른 사진을 보자 · 그만 보자고 하시면 화면이 따른다 */
+      photo_action: {
+        type: 'string',
+        enum: ['none', 'next', 'stop'],
+        description: '다른 사진을 보자고 하시면 next, 그만 보자 · 쉬자고 하시면 stop, 그 밖에는 none.',
+      },
+
+      /* 되받는 한 문장. reply 를 다듬다 남는 말이 없을 때 대신 쓴다 (lib/reply-rules.js safeReflection) */
+      reflection: {
+        type: 'string',
+        description: '어르신이 방금 하신 말씀을, 어르신이 쓰신 낱말과 누가 한 일인지를 살려 되짚는 한 문장. 질문 · 짐작한 기분 · 새 사실은 넣지 않는다. 되짚을 말씀이 없으면 빈 문자열.',
+      },
     },
   },
 };
@@ -602,6 +690,7 @@ app.post('/api/chat', async (req, res) => {
   let memoryContext = '';
   let photoUrl = null;        // 모델에게 함께 보여 줄 사진
   let hasPhoto = false;       // 사진이 걸려 있는가 (모델이 보는지와는 별개)
+  let turnCue = null;         // 이번에 건넬 수 있는 단서 한 가지 (모델에게 보여 준 것과 같다)
   if (req.body?.memory_id) {
     try {
       const memory = await memories.get(String(req.body.memory_id));
@@ -609,8 +698,11 @@ app.post('/api/chat', async (req, res) => {
         /* 사진이 있으면 모델도 함께 본다. 이야깃거리(THEME)는 사진이 없다. */
         hasPhoto = memory.kind !== 'THEME' && Boolean(memory.photo?.file);
         if (VISION && hasPhoto) photoUrl = await photos.dataUrl(memory.photo.file);
-        memoryContext = buildMemoryContext(memories.facts(memory), memory.kind, Boolean(photoUrl));
+        const facts = memories.facts(memory);
+        memoryContext = buildMemoryContext(memory, facts, Boolean(photoUrl), history);
         if (photoUrl) memoryContext += buildVisionRules();
+        /* 답에 이 단서가 나오면 누가 적었는지 밝혔는지 아래에서 본다 */
+        if (memory.kind !== 'THEME' && !justGaveCue(facts, history)) turnCue = pickCue(memory, facts, history);
       }
     } catch (err) {
       console.warn('[chat] 사진 정보를 읽지 못했습니다', err);
@@ -621,22 +713,31 @@ app.post('/api/chat', async (req, res) => {
     .filter((m) => m && typeof m.content === 'string' && ['user', 'assistant'].includes(m.role))
     .slice(-16)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
+  // 어르신의 마지막 말씀을 글로 붙들어 둔다. 아래에서 사진을 붙이면 content 가 배열로 바뀐다.
+  const lastUserText = [...trimmed].reverse().find((m) => m.role === 'user')?.content || '';
+  // 이 대화에서 어르신이 하신 말씀 — 앞서 하신 기분을 되받는 것은 짐작이 아니고, 먼저 꺼내신 낱말은 단서가 아니다
+  const userSaid = trimmed.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
 
   const budget = questionBudget(trimmed);
   /* 회기가 오 분을 넘으면 마무리를 여쭈어야 하므로, 회상 질문 예산과 무관하게 물을 수 있다
      (문서: 종료 확인은 회상 질문 예산과 별도로 계산한다) */
   const closing = sessionSeconds >= SESSION_SECONDS;
-  /* 사진을 방금 올리신 차례. 문서 4번의 '개방형 질문 하나'라 예산과 별도로 묻는다.
-     모델이 사진을 보든 못 보든 문은 열어야 하므로 VISION 과 무관하게 잡는다. */
-  const photoOpening = req.body?.photo_opening === true && hasPhoto;
-  const mayAsk = photoOpening || closing || (budget.left > 0 && !budget.lastWasQuestion);
+  /* 사진 이야기의 첫 물음("이 사진을 보면 어떤 기억이 떠오르세요?")은 화면이 고정된 말로 드린다.
+     그 물음이 이력에 있으므로, 어르신의 첫 대답에는 질문 없이 되받아 드리게 된다. */
+  const mayAsk = closing || (budget.left > 0 && !budget.lastWasQuestion);
+  /* 사진 회상 중 이야기가 멈추신 차례인가 — "그랬지 뭐", "응" 처럼 짧게 맺으셨고,
+     방금 여쭌 물음에 대한 대답이 아니다. 모델은 이런 말에 짐작한 기분만 붙이고 넘어가므로
+     코드가 알아보고 열린 질문을 하나 하게 한다 (④ 필요할 때만 추가 질문). */
+  const recall = Boolean(req.body?.memory_id);
+  const paused = recall && isPause(lastUserText) && !budget.lastWasQuestion;
+  const askFollowUp = paused && !closing && budget.left > 0;
 
   const messages = [
     {
       role: 'system',
       content: buildSystemPrompt(
         charId,
-        buildTurnRules(budget, mayAsk, sessionSeconds, photoOpening, Boolean(photoUrl)),
+        buildTurnRules(budget, mayAsk, sessionSeconds, { recall, paused: askFollowUp }),
         memoryContext),
     },
     ...trimmed,
@@ -718,15 +819,15 @@ app.post('/api/chat', async (req, res) => {
        그 밖에는 질문 예산을 코드로 한 번 더 지킨다. */
     /* 선택 제공과 안전 안내의 물음은 회상 질문이 아니므로 예산에서 빼지 않는다.
        여기서 걷어내면 어르신이 대화를 그만둘 길이 막힌다. */
-    /* 사진을 여는 물음도 마찬가지다. 여기서 걷어내면 사진만 띄워 놓고
-       아무것도 여쭙지 않아 어르신이 무슨 말을 하셔야 할지 모르신다. */
     const exempt = parsed.response_mode === 'OFFER_CHOICE'
-                || parsed.response_mode === 'SAFETY_FLOW'
-                || photoOpening;
+                || parsed.response_mode === 'SAFETY_FLOW';
 
     /* 아픔 이야기도 마찬가지다. "언제부터 그러셨어요?"는 기억력 검사가 아니라
-       걱정에서 나오는 물음이다. 다만 캐묻는 인상이 들지 않게 하나까지만 남긴다. */
-    const caring = parsed.response_mode === 'HEALTH_CARE';
+       걱정에서 나오는 물음이다. 다만 캐묻는 인상이 들지 않게 하나까지만 남긴다.
+       기억이 안 나신다고 할 때(OFFER_CUE)도 같다. 단서 뒤의 "다른 사진을 볼까요?" 를
+       걷어내면 어르신이 넘어갈 길이 막힌다. 역시 하나까지만. */
+    const caring = parsed.response_mode === 'HEALTH_CARE'
+                || parsed.response_mode === 'OFFER_CUE';
 
     if (mode !== 'story' && !exempt) {
       const limited = limitQuestions(reply, caring ? true : mayAsk);
@@ -734,6 +835,46 @@ app.post('/api/chat', async (req, res) => {
         console.warn('[chat] 질문 예산 위반을 걷어냈습니다.',
           { mayAsk, used: budget.used, lastWasQuestion: budget.lastWasQuestion });
         reply = limited;
+      }
+    }
+
+    /* 사진 회상 중에는 답을 한 번 더 다듬는다 (lib/reply-rules.js).
+       · 듣는 차례의 질문 — 새 이야기를 꺼내시거나 이어 가시면 되받고 기다린다 (③).
+         질문부터 하면 질문 자리를 써 버려, 정작 이야기가 멈췄을 때 여쭐 수 없다.
+       · 질문하면 안 되는 차례의 숨은 질문 — "어떤 일이 있었는지 궁금하네요".
+       · 되받은 뒤 버릇처럼 붙이는 짐작한 기분 — "즐거운 시간이셨겠어요".
+         그때 기분은 어르신이 말씀하시거나 여쭤야 할 것이지 짐작해 드릴 것이 아니다.
+       · 이야기가 멈추셨는데 여쭙지 않은 답 — 열린 질문 하나를 붙인다 (④). */
+    const hard = parsed.response_mode === 'SAFETY_FLOW' || parsed.response_mode === 'HEALTH_CARE';
+    if (recall && mode !== 'story' && !hard) {
+      /* 걷어내고 나니 남는 말이 없으면 대신 쓸 말 — 모델이 따로 보낸 되받는 한 문장.
+         그것도 못 쓰면 "그러셨군요." (어르신이 쓰신 낱말을 살린 말이 낫다) */
+      const plain = safeReflection(parsed.reflection, userSaid) || '그러셨군요.';
+      const listening = !paused && !exempt && !caring
+        && ['NEW_EVENT', 'CONTINUING', 'EMOTION'].includes(parsed.user_state);
+      let tidy = reply;
+      if (listening) tidy = dropSoftQuestions(stripQuestions(tidy, plain), plain);
+      else if (!mayAsk && !exempt && !caring) tidy = dropSoftQuestions(tidy, plain);
+
+      /* 짐작하거나 단정한 기분뿐이던 답이면, 멈추신 차례에는 여쭙고 아니면 되받는다. */
+      const followUp = askFollowUp ? pickFollowUp(trimmed) : null;
+      tidy = dropGuessedFeelings(tidy, userSaid, { fallback: followUp ? `${plain} ${followUp}` : plain });
+
+      /* 적어 둔 내용을 단서로 꺼냈으면 누가 적었는지 밝힌다 (어르신이 하신 말처럼 들리지 않게). */
+      tidy = attributeCue(tidy, turnCue, userSaid);
+
+      /* 기억이 안 난다고 하실 때는 두 걸음 — 처음엔 단서와 떠올리실 틈, 그래도 모르시면 넘어갈지 (⑤).
+         한 차례에 둘 다 하면 단서를 듣자마자 넘어가자는 재촉이 된다. 사진이 없는 주제에는 쓰지 않는다. */
+      if (hasPhoto && parsed.user_state === 'CANNOT_RECALL') tidy = recallSteps(tidy, priorMisses(history));
+
+      /* 단서를 건네거나 · 넘어갈지 여쭙거나 · 사진을 넘기고 접는 답에는 붙이지 않는다. */
+      const moving = exempt || caring || ['next', 'stop'].includes(parsed.photo_action);
+      if (followUp && !moving && !hasQuestion(tidy)) tidy = `${tidy} ${followUp}`;
+
+      if (tidy !== reply) {
+        console.warn('[chat] 답을 다듬었습니다.',
+          { state: parsed.user_state, mode: parsed.response_mode, paused });
+        reply = tidy;
       }
     }
 
@@ -792,6 +933,13 @@ app.post('/api/chat', async (req, res) => {
         ? parsed.user_reported_emotion.filter((e) => typeof e === 'string' && e.trim()).slice(0, 4)
         : [],
       pendingClaims: pending,
+      /* 사진 이야기 중일 때만 화면이 따른다 — 다른 사진으로 넘어가기 · 그만 보기.
+         말로만 "다른 사진 볼게요" 하고 화면이 그대로면 어르신이 헷갈리신다.
+         여쭙기만 한 답("다른 사진을 한번 볼까요?")에는 따르지 않는다.
+         대답을 듣기도 전에 사진이 바뀌면 어르신이 당황하신다. */
+      photoAction: recall && ['next', 'stop'].includes(parsed.photo_action)
+        && !hasQuestion(reply) && parsed.response_mode !== 'OFFER_CHOICE'
+        ? parsed.photo_action : 'none',
     });
   } catch (err) {
     console.error('[chat] failed', err);
@@ -1069,8 +1217,10 @@ app.post('/api/memories/upload', photoUpload.single('photo'), async (req, res) =
 /** 다음에 이야기할 기억을 고른다 (사진 추천 점수 순 — lib/photo-score.js) */
 app.get('/api/memories/next', async (req, res) => {
   try {
+    /* kind=PHOTO — 기억 회상 지원. 올리신 사진 중에서만 고르고 이야깃거리로 넘어가지 않는다. */
+    const photosOnly = String(req.query?.kind || '').toUpperCase() === 'PHOTO';
     // 사진이 없어도 첫날부터 이야기할 수 있게, 이야깃거리를 처음 한 번 심어 둔다
-    await memories.seedThemes(owner(req));
+    if (!photosOnly) await memories.seedThemes(owner(req));
 
     const exclude = String(req.query?.exclude || '').split(',').filter(Boolean);
     const ctx = await scoringContext(owner(req));
@@ -1078,6 +1228,7 @@ app.get('/api/memories/next', async (req, res) => {
       ...ctx,
       pickedId: req.query?.picked || undefined,
       excludeIds: exclude,
+      photosOnly,
     });
     if (!picked) return res.json({ memory: null, facts: null, score: null });
     res.json({

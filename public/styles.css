@@ -485,6 +485,37 @@ body {
 }
 .chip:hover { background: var(--brand-soft); border-color: var(--brand-line); color: var(--brand); }
 
+/* 기억 회상 지원 — 사진을 단서로 옛 기억을 떠올리시게 돕는 대화를 연다.
+   자주 쓰는 말 줄의 맨 앞에 두되, 말을 보내는 칩과 한눈에 구별되게 채워 둔다.
+   줄 높이는 칩과 같아 아래 입력칸이 더 커지지 않는다. */
+.btn-recall {
+  flex: 0 0 auto;
+  font-family: inherit;
+  font-size: calc(var(--base) * .76);
+  font-weight: 700;
+  color: #fff;
+  background: var(--brand);
+  border: 1px solid var(--brand);
+  border-radius: 999px;
+  padding: 7px 18px 7px 14px;
+  min-height: 40px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.btn-recall:hover { background: var(--brand-2); border-color: var(--brand-2); }
+.btn-recall .recall-icon {
+  width: 1.2em; height: 1.2em;
+  fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+/* 회상 중에는 '회상 마치기' — 비워 두어 누르면 끝난다는 것이 보이게 */
+.btn-recall[aria-pressed="true"] { background: var(--card); color: var(--brand); }
+.btn-recall[aria-pressed="true"]:hover { background: var(--brand-soft); }
+
 .input-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

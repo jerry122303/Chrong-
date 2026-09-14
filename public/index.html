@@ -64,14 +64,6 @@
         <span class="ctrl-label">소리<b id="sound-state">켜짐</b></span>
       </button>
 
-      <button id="btn-photo" class="ctrl" type="button" aria-pressed="false">
-        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="3" y="5.5" width="18" height="14" rx="2.5"/>
-          <circle cx="8.6" cy="10.4" r="1.7"/>
-          <path d="M3.5 17.5l5-4.6 4.2 3.8 3-2.6 4.8 4"/>
-        </svg>
-        <span class="ctrl-label">사진 이야기<b id="photo-state">꺼짐</b></span>
-      </button>
 
       <button id="btn-swap" class="ctrl" type="button">
         <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -161,7 +153,17 @@
 
   <!-- ================= 하단 입력 ================= -->
   <footer class="composer">
-    <div class="suggest" id="suggest" aria-label="이런 말은 어때요">
+    <div class="suggest" id="suggest" aria-label="자주 쓰는 것">
+      <!-- 기억 회상 지원 — 올리신 사진 중 점수가 가장 높은 사진을 띄우고
+           "이 사진을 보면 어떤 기억이 떠오르세요?" 로 연다. 회상 중에는 '회상 마치기' 가 된다 -->
+      <button id="btn-recall" class="btn-recall" type="button" aria-pressed="false">
+        <svg class="recall-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="5.5" width="18" height="14" rx="2.5"/>
+          <circle cx="8.6" cy="10.4" r="1.7"/>
+          <path d="M3.5 17.5l5-4.6 4.2 3.8 3-2.6 4.8 4"/>
+        </svg>
+        <span id="recall-label">기억 회상 지원</span>
+      </button>
       <button class="chip" type="button" data-say="안녕하세요, 초롱아!">안녕하세요</button>
       <button class="chip" type="button" data-say="오늘은 좀 심심하네요.">심심해요</button>
       <button class="chip" type="button" data-say="옛날 이야기 하나 해 주세요.">옛날 이야기</button>
@@ -179,9 +181,9 @@
       </button>
 
       <div class="type-box">
-        <!-- 사진 올리기 — 고르시면 초롱이 옆에 뜨고, 얼마나 소중한지 고르시면 그 사진 이야기가 시작됩니다 -->
+        <!-- 사진 올리기 — 올리시면 얼마나 소중한 사진인지 고르고 등록합니다. 이야기는 [기억 회상 지원] 에서 -->
         <button id="btn-attach" class="btn-attach" type="button"
-                aria-label="사진 올리기" title="사진을 골라 함께 보며 이야기해요">
+                aria-label="사진 올리기" title="사진을 올려 등록해요">
           <svg class="attach-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5.5v13"/><path d="M5.5 12h13"/>
           </svg>
