@@ -167,162 +167,118 @@ const BIRD_GEOM = {
 };
 
 /* ==================================================================
- *  2. 사람 캐릭터 (준호 · 서연) — 플랫 아이콘 스타일
+ *  2. 사람 캐릭터 (준호 · 서연) — 보내 준 캐릭터 그림을 SVG 로 옮긴 것
  *
- *  반쯤 사실적인 그림체는 불쾌한 골짜기에 빠지기 쉬워서 방향을 바꿨다.
- *  - 그라디언트 없음 · 윤곽선 없음 · 면(面) 하나에 색 하나
- *  - 코·콧방울·인중·손가락 마디처럼 "사람처럼 보이려는" 디테일을 전부 뺀다
- *  - 눈은 흰자 없이 짙은 색 덩어리, 볼은 납작한 분홍 타원
- *  덜 사람 같을수록 오히려 편안해 보인다.
+ *  그림 좌표(가로 800 · 눈 높이 410)로 그린 뒤 한 번에 줄여 아바타 틀(400×500)에 얹는다.
+ *  엔진이 움직이는 부위(눈 · 눈꺼풀 · 입 · 볼 · 눈물)도 이 그림 좌표 안에 있으므로
+ *  ART_GEOM 의 해당 기준점도 그림 좌표로 적는다. (머리 · 몸 기준점만 틀 좌표)
  *
- *  세로 기준 (머리 위 54 ~ 턱 262):
- *    앞머리 끝 128 · 눈썹 154 · 눈 176 · 입 210 · 턱 262
+ *  입은 그림 속 '웃는 입' 을 그대로 두고, 말할 때는 아래턱만 내려간다.
+ *  눈썹은 그림에 없어서 빈 자리만 둔다 (엔진이 찾는 부위라 지우지는 않는다).
  * ================================================================== */
 
-const HUMAN_GEOM = {
-  eyeL: [169, 176], eyeR: [231, 176],
-  browPivotL: [169, 154], browPivotR: [231, 154],
-  lidTravel: 34,
+const ART = { scale: 0.47, cx: 400, eyeY: 410 };
+const ART_MATRIX =
+  `matrix(${ART.scale} 0 0 ${ART.scale} ${200 - ART.cx * ART.scale} ${176 - ART.eyeY * ART.scale})`;
+
+const SKIN = '#FAE1D6';
+const SKIN_EDGE = '#EFB39A';
+
+const ART_GEOM = {
   bodyPivot: [200, 476], headPivot: [200, 290],
   wingPivotL: [140, 350], wingPivotR: [260, 350], wingScale: 1,
-  hasArms: false,          // 참고 그림처럼 팔 없는 상반신
-  crestPivot: [236, 74], crestScale: 0.3,
-  browScale: 0.9,
-  jawPivot: [200, 210], jawTravel: 12, jawRot: 0, mouthFade: 0.22,
-  mouthOrigin: [200, 210], mouthSX: 0.12, mouthSY: 1,
-  heartL: [169, 176], heartR: [231, 176],
+  hasArms: false,
+  crestPivot: [400, 150], crestScale: 0.3,
+  browPivotL: [310, 340], browPivotR: [490, 340], browScale: 0.9,
+  lidTravel: 84,
+  jawPivot: [400, 526], jawTravel: 26, jawRot: 0,
+  mouthOrigin: [400, 526], mouthSX: 0, mouthSY: 1,
   fx: { heartX: 108, heartY: 180, dropX: 100, dropY: 170, thinkX: 312, thinkY: 96, sparkX: 110, sparkY: 84 },
 };
 
-/* 얼굴 — 모서리가 둥근 달걀형 */
-const FACE_PATH =
-  'M200 66 C148 66, 115 96, 115 152 C115 200, 145 262, 200 262 ' +
-  'C255 262, 285 200, 285 152 C285 96, 252 66, 200 66 Z';
+const artGeom = (P) => ({
+  ...ART_GEOM,
+  eyeL: [P.eyeX[0], 410], eyeR: [P.eyeX[1], 410],
+  heartL: [P.eyeX[0], 410], heartR: [P.eyeX[1], 410],
+  thinkStroke: P.hair,
+});
 
 /**
- * 눈 — 흰자·홍채·속눈썹 없이 짙은 색 덩어리 하나.
- * 눈꺼풀은 살구색 판이 위에서 내려와 덮는 방식이라,
- * 쉬고 있을 때는 눈 위 살색과 구별되지 않아 보이지 않는다.
- * 감김선은 판보다 한참 위에 그려 두어, 다 감았을 때만 눈 한가운데로 온다.
+ * 눈 — 그림처럼 짙은 동그라미 (서연은 반짝이 하나).
+ * 눈꺼풀은 살색 판이 위에서 내려와 덮는다. 쉬고 있을 때는 눈 위 살색과 구별되지 않는다.
  */
-function eyeGroup(P, side) {
-  const cx = side === 'l' ? 169 : 231;
-  const id = (n) => `ch-${n}-${side}`;
-
+function artEye(P, side) {
+  const cx = side === 'l' ? P.eyeX[0] : P.eyeX[1];
   return `
-        <g id="${id('eye')}">
-          <g id="${id('pupil')}">
-            <ellipse cx="${cx}" cy="176" rx="11.5" ry="14.5" fill="${P.eye}"/>
-            <circle cx="${cx + 4}" cy="170" r="3.7" fill="#FFFFFF"/>
-          </g>
-          <path id="${id('heart')}"
-                d="M${cx} 169 C${cx + 6} 161, ${cx + 15} 167, ${cx + 9} 176 L${cx} 187 L${cx - 9} 176
-                   C${cx - 15} 167, ${cx - 6} 161, ${cx} 169 Z"
-                fill="${P.heart}" opacity="0"/>
-          <g clip-path="url(#ch-clip-eye-${side})">
-            <g id="${id('lid')}">
-              <rect x="${cx - 28}" y="112" width="56" height="47" fill="${P.skin}"/>
-              <path d="M${cx - 12} 141 Q${cx} 147 ${cx + 12} 141" fill="none"
-                    stroke="${P.eye}" stroke-width="4" stroke-linecap="round"/>
+          <g id="ch-eye-${side}">
+            <g id="ch-pupil-${side}">
+              <ellipse cx="${cx}" cy="410" rx="${P.eyeRx}" ry="${P.eyeRy}" fill="${P.eye}"/>
+              ${P.eyeShine ? `<circle cx="${cx + 8}" cy="398" r="8" fill="#FFFFFF"/>` : ''}
+            </g>
+            <path id="ch-heart-${side}"
+                  d="M${cx} 396 C${cx + 14} 378, ${cx + 38} 392, ${cx + 22} 416 L${cx} 440 L${cx - 22} 416
+                     C${cx - 38} 392, ${cx - 14} 378, ${cx} 396 Z" fill="#F2707F" opacity="0"/>
+            <g clip-path="url(#ch-clip-eye-${side})">
+              <g id="ch-lid-${side}">
+                <rect x="${cx - 50}" y="270" width="100" height="100" fill="${SKIN}"/>
+                <path d="M${cx - 26} 336 Q${cx} 350 ${cx + 26} 336" fill="none"
+                      stroke="${P.eye}" stroke-width="9" stroke-linecap="round"/>
+              </g>
             </g>
           </g>
-        </g>`;
+          <path id="ch-smile-${side}" d="M${cx - 30} 424 Q${cx} 378 ${cx + 30} 424" fill="none"
+                stroke="${P.eye}" stroke-width="11" stroke-linecap="round" opacity="0"/>`;
 }
 
-/* 웃는 눈 — 플랫 스타일에서는 단순한 아치가 가장 자연스럽다 */
-function smileEye(P, side) {
-  const cx = side === 'l' ? 169 : 231;
-  return `
-        <path id="ch-smile-${side}" d="M${cx - 13} 182 Q${cx} 161 ${cx + 13} 182"
-              fill="none" stroke="${P.eye}" stroke-width="5.5" stroke-linecap="round" opacity="0"/>`;
-}
-
-function humanSVG(P) {
+function artSVG(P) {
+  const [lx, rx] = P.eyeX;
+  const drop = (x) => `<path d="M${x} 440 C${x - 14} 464, ${x - 16} 486, ${x} 492 C${x + 16} 486, ${x + 14} 464, ${x} 440 Z" fill="#5AB9F5"/>`;
   return `
 <svg id="ch-svg" viewBox="0 -30 400 500" xmlns="http://www.w3.org/2000/svg" role="img"
      aria-label="${P.label}">
   <defs>
-    <clipPath id="ch-clip-eye-l"><rect x="144" y="160" width="50" height="35"/></clipPath>
-    <clipPath id="ch-clip-eye-r"><rect x="206" y="160" width="50" height="35"/></clipPath>
+    <clipPath id="ch-clip-eye-l"><rect x="${lx - 48}" y="364" width="96" height="92"/></clipPath>
+    <clipPath id="ch-clip-eye-r"><rect x="${rx - 48}" y="364" width="96" height="92"/></clipPath>
   </defs>
 
   <g id="ch-root">
     <g id="ch-feet"></g>
 
     <g id="ch-char">
-
-      <!-- 목 -->
-      <path d="M179 232 H221 V300 H179 Z" fill="${P.skinDark}"/>
-
-      <!-- 상의 -->
-      <path d="M100 476 L100 396
-               C100 348, 124 306, 164 296
-               C178 288, 222 288, 236 296
-               C276 306, 300 348, 300 396
-               L300 476 Z" fill="${P.top}"/>
-      ${P.collar}
+      <!-- 목 · 옷 -->
+      <g transform="${ART_MATRIX}">${P.body}</g>
 
       <g id="ch-head">
+        <g transform="${ART_MATRIX}">
+          ${P.hairBack || ''}
+          ${P.face}
+          ${P.hairFront}
+          <g id="ch-crest"></g>
 
-        <!-- 뒷머리 -->
-        ${P.hairBack || ''}
+          <ellipse id="ch-cheek-l" cx="${lx - 12}" cy="490" rx="36" ry="18" fill="#F4A09A" opacity="0"/>
+          <ellipse id="ch-cheek-r" cx="${rx + 12}" cy="490" rx="36" ry="18" fill="#F4A09A" opacity="0"/>
+          <g id="ch-tears" opacity="0">${drop(lx)}${drop(rx)}</g>
 
-        <!-- 귀 -->
-        <ellipse cx="116" cy="170" rx="11" ry="14" fill="${P.skin}"/>
-        <ellipse cx="284" cy="170" rx="11" ry="14" fill="${P.skin}"/>
+          ${artEye(P, 'l')}
+          ${artEye(P, 'r')}
+          <g id="ch-brow-l"></g>
+          <g id="ch-brow-r"></g>
 
-        <!-- 얼굴 -->
-        <path d="${FACE_PATH}" fill="${P.skin}"/>
+          <!-- 코 -->
+          <path d="${P.nose}" fill="none" stroke="#141214" stroke-width="9" stroke-linecap="round"/>
 
-        <!-- 앞머리 -->
-        ${P.hairFront}
-        <g id="ch-crest">${P.tuft || ''}</g>
-
-        <!-- 볼 -->
-        <ellipse id="ch-cheek-l" cx="145" cy="200" rx="17" ry="10.5" fill="${P.cheek}" opacity="0"/>
-        <ellipse id="ch-cheek-r" cx="255" cy="200" rx="17" ry="10.5" fill="${P.cheek}" opacity="0"/>
-        <ellipse cx="145" cy="200" rx="17" ry="10.5" fill="${P.cheek}" opacity="0.55"/>
-        <ellipse cx="255" cy="200" rx="17" ry="10.5" fill="${P.cheek}" opacity="0.55"/>
-
-        <!-- 눈물 -->
-        <g id="ch-tears" opacity="0">
-          <path d="M150 190 C143 202, 142 214, 150 218 C158 214, 157 202, 150 190 Z" fill="${P.tear}"/>
-          <path d="M250 190 C243 202, 242 214, 250 218 C258 214, 257 202, 250 190 Z" fill="${P.tear}"/>
-        </g>
-
-        ${eyeGroup(P, 'l')}
-        ${eyeGroup(P, 'r')}
-        ${smileEye(P, 'l')}
-        ${smileEye(P, 'r')}
-
-        <!-- 눈썹 : 단순한 곡선 하나 -->
-        <g id="ch-brow-l">
-          <path d="M152 ${154 + P.browTilt} Q169 ${145 - P.browArch} 186 152"
-                fill="none" stroke="${P.brow}" stroke-width="${P.browW}" stroke-linecap="round"/>
-        </g>
-        <g id="ch-brow-r">
-          <path d="M248 ${154 + P.browTilt} Q231 ${145 - P.browArch} 214 152"
-                fill="none" stroke="${P.brow}" stroke-width="${P.browW}" stroke-linecap="round"/>
-        </g>
-
-        <!-- 입 -->
-        <g id="ch-beak">
-          <g id="ch-mouth-open">
-            <path d="M176 208 L224 208 C224 236, 212 246, 200 246
-                     C188 246, 176 236, 176 208 Z" fill="${P.mouth}"/>
-            <path d="M184 208 L216 208 L216 212
-                     C215.5 217, 209 219.5, 200 219.5
-                     C191 219.5, 184.5 217, 184 212 Z" fill="#FFF8F4"/>
-            <ellipse cx="200" cy="240" rx="11" ry="6" fill="${P.tongue}"/>
-          </g>
-          <g id="ch-beak-lower">
-            <path d="M182 207 Q200 226 218 207" fill="none" stroke="${P.mouth}"
-                  stroke-width="5.5" stroke-linecap="round"/>
+          <!-- 입 : 벌어지는 틈 → 아래턱 → 윗니 (조각끼리 몇 칸씩 겹쳐 이음매를 감춘다) -->
+          <g id="ch-beak"${P.mouthTilt ? ` transform="rotate(${P.mouthTilt} 400 520)"` : ''}>
+            <g id="ch-mouth-open">
+              <path d="M${P.mouthL} 522 H${P.mouthR} V556 H${P.mouthL} Z" fill="${P.mouth}"/>
+            </g>
+            <g id="ch-beak-lower">${P.mouthLower}</g>
+            ${P.mouthUpper}
           </g>
         </g>
       </g>
 
-      <!-- 엔진이 좌우 흔들림을 걸어 두는 자리 (플랫 상반신은 팔이 없다) -->
+      <!-- 엔진이 좌우 흔들림을 걸어 두는 자리 (상반신이라 팔이 없다) -->
       <g id="ch-wing-l"></g>
       <g id="ch-wing-r"></g>
     </g>
@@ -332,72 +288,106 @@ function humanSVG(P) {
 </svg>`;
 }
 
-/* 공통 살색 · 이목구비 색 (두 캐릭터가 같은 톤을 쓴다) */
-const FLAT_BASE = {
-  skin: '#F8C9A4', skinDark: '#F1B993',
-  eye: '#3C2F2C', cheek: '#F2938E',
-  mouth: '#7C3B44', tongue: '#E8798A',
-  tear: '#5AB9F5', heart: '#F2707F',
-};
-
-/* --- 준호 : 짧은 검은 머리 + 파란 상의 --- */
+/* --- 준호 : 갈색 삐죽 머리 + 짙은 갈색 맨투맨 --- */
 const JUNHO = {
-  ...FLAT_BASE,
   label: '준호 캐릭터',
-  hair: '#332B29',
-  brow: '#332B29', browW: 5.5, browArch: 2, browTilt: 0,
-  top: '#4E8FD6',
+  hair: '#5C4234',
+  eye: '#0D0B12', eyeX: [312, 488], eyeRx: 34, eyeRy: 34, eyeShine: false,
+  nose: 'M382 470 Q396 450 410 468',
+  mouth: '#2E2B2D', mouthL: 336, mouthR: 464, mouthTilt: -7,
+
+  body: `
+    <path d="M378 556 V660 H446 V556 Z" fill="${SKIN}"/>
+    <path d="M378 556 V660 M446 556 V660" stroke="${SKIN_EDGE}" stroke-width="10"/>
+    <path d="M356 630 C318 634 292 652 278 690 C264 740 256 830 250 1080 H560
+             C554 830 548 740 534 690 C520 652 494 634 460 628 Z" fill="#33262A"/>
+    <path d="M356 632 Q406 678 462 630" fill="none" stroke="#1C1417" stroke-width="12"/>
+    <path d="M296 672 Q282 780 292 900 M516 672 Q530 780 520 900" fill="none"
+          stroke="#1C1417" stroke-width="4"/>`,
+
+  face: `
+    <path d="M196 404 C150 390 114 404 114 446 C114 490 150 510 200 502 Z" fill="${SKIN_EDGE}"/>
+    <path d="M192 420 C160 410 132 420 132 448 C132 476 158 490 194 486 Z" fill="${SKIN}"/>
+    <path d="M150 436 Q176 450 184 472" fill="none" stroke="${SKIN_EDGE}" stroke-width="9" stroke-linecap="round"/>
+    <path d="M604 404 C650 390 686 404 686 446 C686 490 650 510 600 502 Z" fill="${SKIN_EDGE}"/>
+    <path d="M608 420 C640 410 668 420 668 448 C668 476 642 490 606 486 Z" fill="${SKIN}"/>
+    <path d="M650 436 Q624 450 616 472" fill="none" stroke="${SKIN_EDGE}" stroke-width="9" stroke-linecap="round"/>
+    <path d="M200 300 C192 424 212 522 262 566 C306 598 352 610 400 610
+             C448 610 494 598 538 566 C588 522 608 424 600 300 Z" fill="${SKIN_EDGE}"/>
+    <path d="M214 300 C206 420 226 510 272 552 C314 584 356 596 400 596
+             C444 596 486 584 528 552 C574 510 594 420 586 300 Z" fill="${SKIN}"/>`,
 
   hairFront: `
-    <path d="M200 52 C146 52, 109 88, 109 152
-             C109 165, 113 174, 120 178
-             C118 147, 124 124, 139 114
-             C161 131, 215 133, 248 116
-             C262 127, 268 149, 266 178
-             C275 174, 291 165, 291 152
-             C291 88, 254 52, 200 52 Z" fill="#332B29"/>`,
+    <path d="M175 218 C196 222 214 222 230 216 C250 176 316 142 396 136 C414 134 424 132 430 128
+             C446 146 468 160 488 166 C504 160 520 154 532 150 C540 176 552 208 562 236
+             C586 232 608 234 628 240 C614 250 606 262 604 272 C624 280 640 290 652 298
+             C640 300 634 304 632 310 C650 380 642 460 594 526 C588 450 582 380 570 330
+             C566 310 560 296 556 288 C490 330 430 352 356 362 C390 344 420 326 444 308
+             C392 330 310 352 238 372 C226 420 220 470 216 516 C176 480 158 420 158 350
+             C158 290 176 250 206 228 C196 226 186 222 175 218 Z" fill="#5C4234"/>`,
 
-  tuft: '',
+  mouthUpper: `
+    <path d="M330 506 H470 C470 514 468 522 464 528 H336 C332 522 330 514 330 506 Z" fill="#2E2B2D"/>
+    <path d="M346 508 H454 C450 516 444 520 436 522 H364 C356 520 350 516 346 508 Z" fill="#FFFFFF"/>`,
 
-  collar: `
-    <path d="M181 300 L200 326 L219 300" fill="none" stroke="#3F79BB"
-          stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>`,
+  mouthLower: `
+    <path d="M336 523 H464 C456 560 432 576 400 576 C368 576 344 560 336 523 Z" fill="#2E2B2D"/>
+    <path d="M358 558 C374 542 426 542 442 558 C430 570 416 576 400 576 C384 576 370 570 358 558 Z" fill="#E0667A"/>`,
 };
 
-/* --- 서연 : 갈색 단발 + 보라 상의 --- */
+/* --- 서연 : 가운데 가르마 긴 머리 + 연보라 후드 --- */
 const SEOYEON = {
-  ...FLAT_BASE,
   label: '서연 캐릭터',
-  hair: '#7B4A2E',
-  brow: '#7B4A2E', browW: 4.5, browArch: 3, browTilt: 1,
-  top: '#B983D9',
+  hair: '#3E3430',
+  eye: '#393347', eyeX: [320, 480], eyeRx: 25, eyeRy: 30, eyeShine: true,
+  nose: 'M378 474 Q392 454 406 472',
+  mouth: '#5E4637', mouthL: 350, mouthR: 450, mouthTilt: 0,
+
+  body: `
+    <path d="M376 556 V650 H428 V556 Z" fill="${SKIN}"/>
+    <path d="M322 612 C288 628 262 660 252 702 C244 760 238 900 236 1080 H572
+             C570 900 566 760 558 702 C548 660 522 628 486 612 Z" fill="#CDD0E8"/>
+    <path d="M360 610 Q404 650 448 610 L438 604 Q404 632 370 604 Z" fill="#FFFFFF"/>
+    <path d="M322 612 C352 640 382 664 404 706 C426 664 456 640 486 612" fill="none"
+          stroke="#A7ACD4" stroke-width="5"/>
+    <path d="M380 664 L374 772 M428 664 L434 800" fill="none" stroke="#A7ACD4"
+          stroke-width="5" stroke-linecap="round"/>`,
 
   hairBack: `
-    <path d="M200 50 C254 50, 296 90, 296 154
-             C302 204, 308 258, 306 288
-             C302 304, 276 306, 266 292
-             C248 280, 234 276, 224 272
-             C246 246, 256 212, 252 174
-             C248 132, 234 108, 200 108
-             C166 108, 152 132, 148 174
-             C144 212, 154 246, 176 272
-             C166 276, 152 280, 134 292
-             C124 306, 98 304, 94 288
-             C92 258, 98 204, 104 154
-             C104 90, 146 50, 200 50 Z" fill="#7B4A2E"/>`,
+    <path d="M392 70 C300 70 190 110 140 200 C104 280 104 400 116 480 C128 580 160 660 204 722
+             C236 700 266 660 292 626 C300 612 310 600 322 594 H476 C490 604 506 620 520 640
+             C540 670 566 700 590 708 C636 640 664 560 670 460 C676 360 664 250 626 170
+             C586 100 490 70 392 70 Z" fill="#3E3430" stroke="#111111" stroke-width="7"
+          stroke-linejoin="round"/>`,
+
+  face: `
+    <path d="M204 404 C182 398 170 420 174 440 C178 460 192 468 206 466 Z" fill="${SKIN}"
+          stroke="${SKIN_EDGE}" stroke-width="6"/>
+    <path d="M600 404 C622 398 634 420 630 440 C626 460 612 468 598 466 Z" fill="${SKIN}"
+          stroke="${SKIN_EDGE}" stroke-width="6"/>
+    <path d="M204 300 C198 430 222 526 270 566 C312 598 356 610 400 610
+             C444 610 488 598 530 566 C578 526 602 430 596 300 Z" fill="${SKIN_EDGE}"/>
+    <path d="M216 300 C210 424 234 514 280 552 C318 582 358 594 400 594
+             C442 594 482 582 520 552 C566 514 590 424 584 300 Z" fill="${SKIN}"/>`,
 
   hairFront: `
-    <path d="M200 48 C146 48, 107 88, 107 154
-             C109 128, 117 110, 132 102
-             C157 124, 213 128, 248 108
-             C264 118, 291 132, 293 154
-             C293 88, 254 48, 200 48 Z" fill="#7B4A2E"/>`,
+    <path d="M392 72 C300 72 196 116 150 206 C120 270 116 350 132 420 C156 390 196 368 212 364
+             C258 350 300 300 330 250 C352 210 372 160 388 110 C400 170 428 240 470 300
+             C510 356 560 384 636 398 C640 330 632 250 604 190 C560 110 480 72 392 72 Z"
+          fill="#3E3430" stroke="#111111" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M372 130 C340 210 300 280 240 330 M340 110 C290 170 220 220 176 300
+             M420 130 C450 210 500 290 580 350 M460 110 C520 160 580 220 610 300
+             M150 470 C160 560 180 640 204 700 M650 460 C640 560 620 640 590 700"
+          fill="none" stroke="#1A1716" stroke-width="5" stroke-linecap="round"/>
+    <path d="M300 150 C260 200 220 250 196 320 M500 150 C540 200 580 260 600 320"
+          fill="none" stroke="#7A6D66" stroke-width="3" stroke-linecap="round"/>`,
 
-  collar: `
-    <path d="M177 294 C185 310, 194 318, 200 320
-             C191 330, 174 328, 168 316 C163 306, 169 295, 177 294 Z" fill="#FFFFFF"/>
-    <path d="M223 294 C215 310, 206 318, 200 320
-             C209 330, 226 328, 232 316 C237 306, 231 295, 223 294 Z" fill="#FFFFFF"/>`,
+  mouthUpper: `
+    <path d="M346 506 H454 C454 514 452 522 450 528 H350 C348 522 346 514 346 506 Z" fill="#5E4637"/>`,
+
+  mouthLower: `
+    <path d="M350 523 H450 C444 552 424 566 400 566 C376 566 356 552 350 523 Z" fill="#5E4637"/>
+    <path d="M368 552 C382 538 418 538 432 552 C422 562 412 566 400 566 C388 566 378 562 368 552 Z" fill="#D9968C"/>`,
 };
 
 
@@ -411,14 +401,14 @@ export const CHARACTERS = {
   junho: {
     id: 'junho',
     name: '준호',
-    svg: humanSVG(JUNHO),
-    geom: { ...HUMAN_GEOM, thinkStroke: JUNHO.hair },
+    svg: artSVG(JUNHO),
+    geom: artGeom(JUNHO),
   },
   seoyeon: {
     id: 'seoyeon',
     name: '서연',
-    svg: humanSVG(SEOYEON),
-    geom: { ...HUMAN_GEOM, thinkStroke: SEOYEON.hair },
+    svg: artSVG(SEOYEON),
+    geom: artGeom(SEOYEON),
   },
 };
 
