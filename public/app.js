@@ -5,6 +5,7 @@
 
 import { Avatar, CHARACTERS, CHARACTER_LIST, DEFAULT_CHARACTER } from './avatar.js';
 import { readExifFromFile, formatTakenDate } from './exif.js';
+import { openingLine } from './recall-opening.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -905,13 +906,6 @@ ui.keepYes.addEventListener('click', () => decideKeep(true));
 ui.keepNo.addEventListener('click', () => decideKeep(false));
 
 /**
- * 사진 회상의 첫 물음. 어떤 사진이든 늘 이 말로 문을 연다.
- * 정답이 없는 열린 질문이라 어르신이 떠오르는 대로 말씀하시면 된다.
- * 모델에게 맡기지 않는다 — 사진을 먼저 설명하거나 알아맞히게 하는 말이 섞이기 쉽다.
- */
-const RECALL_OPENING = '이 사진을 보면 어떤 기억이 떠오르세요?';
-
-/**
  * [기억 회상 지원] 에 띄울 사진 — 올리신 사진 중 추천 점수가 가장 높은 것.
  * 이번 회기에 이미 본 사진은 뺀다. 이야깃거리(사진 없는 주제)로는 넘어가지 않는다.
  * 남은 사진이 없으면 null, 서버에 못 물어보면 던진다.
@@ -1246,7 +1240,9 @@ async function openRecall(memory, { fresh = false } = {}) {
   if (!state.sessionStart) state.sessionStart = Date.now();
   await startSession(memory.memory_id);
 
-  const line = RECALL_OPENING;
+  /* 첫 말 — 사진에 보이는 것을 한두 가지 짚고, 어떤 사진이든 늘 같은 첫 물음으로 연다.
+     (public/recall-opening.js — 모델에게 맡기지 않는다. 첫 말부터 짐작이 섞이면 바로잡기 어렵다) */
+  const line = openingLine(memory.analysis);
   ui.subtitle.textContent = line;
   addMessage('bot', line);
   state.history.push({ role: 'assistant', content: line });
