@@ -442,8 +442,8 @@ export class Avatar {
   constructor(mount, characterId = DEFAULT_CHARACTER) {
     this.mount = mount;
 
-    this.cur = { ...EMOTIONS.neutral, mouth: 0 };
-    this.tgt = { ...EMOTIONS.neutral, mouth: 0 };
+    this.cur = { ...EMOTIONS.neutral, mouth: 0, talk: 0 };
+    this.tgt = { ...EMOTIONS.neutral, mouth: 0, talk: 0 };
     this.emotion = 'neutral';
 
     this.t = 0;
@@ -529,6 +529,7 @@ export class Avatar {
 
   setSpeaking(on) {
     this.speaking = on;
+    this.tgt.talk = on ? 1 : 0;       // 말하기 몸짓은 켜고 끌 때도 부드럽게 넘어간다
     if (!on) this.tgt.mouth = 0;
   }
 
@@ -601,9 +602,11 @@ export class Avatar {
     const floatY = Math.sin(t * 1.15 * slow) * 3.2 * slow;
     const swayX = Math.sin(t * 0.72 * slow) * 3 * slow;
 
-    /* --- 말할 때의 미세한 움직임 --- */
-    const talkBob = this.speaking ? Math.sin(t * 9) * 1.8 * c.mouth + c.mouth * 2 : 0;
-    const talkTilt = this.speaking ? Math.sin(t * 3.1) * 2.2 : 0;
+    /* --- 말할 때의 미세한 움직임 ---
+       머리 위치를 목소리 크기(c.mouth)에 묶으면 음절마다 머리가 튀어
+       부르르 떠는 것처럼 보인다. 말하는 동안에는 느린 끄덕임만 얹는다. */
+    const talkBob = Math.sin(t * 2.4) * 1.4 * c.talk;
+    const talkTilt = Math.sin(t * 1.7) * 1.6 * c.talk;
 
     /* --- 적용 --- */
     const E = this.el;
@@ -633,8 +636,9 @@ export class Avatar {
       `rotate(${((c.crest + crestWave) * (G.crestScale ?? 1)).toFixed(2)} ${cpx} ${cpy})`);
 
     const ws = G.wingScale ?? 1;
-    const idleWing = Math.sin(t * 2.1 * slow) * 3 * slow + (this.speaking ? Math.sin(t * 6) * 4 : 0);
-    const excite = this.emotion === 'excited' ? Math.sin(t * 11) * 16 : 0;
+    const idleWing = Math.sin(t * 2.1 * slow) * 3 * slow + Math.sin(t * 3) * 3 * c.talk;
+    // 신날 때 날개 — 빠르고 크게 흔들면 떨리는 것처럼 보여 느리고 작게
+    const excite = this.emotion === 'excited' ? Math.sin(t * 4) * 8 : 0;
     const [wlx, wly] = G.wingPivotL;
     const [wrx, wry] = G.wingPivotR;
 

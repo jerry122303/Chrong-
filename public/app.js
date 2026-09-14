@@ -1402,11 +1402,11 @@ function buildPicker() {
     card.addEventListener('click', () => selectPending(id));
   }
 
-  // 고른 친구가 이따금 인사하듯 움직인다
+  // 고른 친구가 이따금 인사하듯 고개를 끄덕인다 (통통 튀면 떨리는 것처럼 보여 끄덕이기만)
   pickerHop = setInterval(() => {
     const i = CHARACTER_LIST.indexOf(pending);
-    pickerAvatars[i]?.playGesture('bounce');
-  }, 2600);
+    pickerAvatars[i]?.playGesture('nod');
+  }, 4000);
 
   selectPending(pending);
 }
@@ -1417,7 +1417,7 @@ function selectPending(id) {
     const on = card.dataset.char === id;
     card.setAttribute('aria-checked', String(on));
     const i = CHARACTER_LIST.indexOf(card.dataset.char);
-    pickerAvatars[i]?.setEmotion(on ? 'excited' : 'neutral');
+    pickerAvatars[i]?.setEmotion(on ? 'happy' : 'neutral');
   }
 }
 
@@ -1516,8 +1516,10 @@ function init() {
     state.lastReply = { text, emotion: 'excited', mode: 'talk' };
     saveHistory();
 
-    avatar.setEmotion('excited');
-    avatar.playGesture('cheer');
+    /* 첫 인사 — 만세 · 신남 표정은 몸이 들썩여 떨리는 것처럼 보인다. 웃으며 끄덕이기만 한다.
+       목소리는 반가운 말투 그대로 둔다. */
+    avatar.setEmotion('happy');
+    avatar.playGesture('nod');
     await speak(text, 'excited');
   });
 }
