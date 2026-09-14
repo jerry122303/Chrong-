@@ -13,8 +13,11 @@ import {
   hasQuestion, limitQuestions, dropSoftQuestions, safeReflection, withReaction,
   dropQuizQuestions, dropGuessedPeople, plainReaction,
   pickCue, justGaveCue, cueSentence, attributeCue, isPause, pickFollowUp, priorMisses, recallSteps,
-  photoMaterial, CUE_SOURCE_SAY,
+  photoMaterial, dropRepeatedSentences, CUE_SOURCE_SAY,
 } from './lib/reply-rules.js';
+import {
+  questionContext, pickQuestions, withQuestionnaire, isStopIntent, CLOSING_LINE,
+} from './lib/recall-questions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -487,8 +490,8 @@ function buildMemoryContext(memory, facts, canSee = false, history = []) {
   lines.push('- "다른 사진 보자", "다음 사진", "이거 말고 다른 거" 라고 하시거나, 다른 사진을 볼지 여쭌 데에');
   lines.push('  "응", "그래" 하시면 photo_action 을 "next" 로 합니다.');
   lines.push('  reply 는 "네, 다른 사진을 가져올게요." 처럼 짧게 받아 드리고, 질문하지 않습니다.');
-  lines.push('- "그만 볼래", "이제 됐어", "그만할래", "쉬고 싶어" 라고 하시면 photo_action 을 "stop" 으로 합니다.');
-  lines.push('  reply 는 들려주신 이야기에 고마움을 전하는 짧은 인사로 하고, 질문하지 않습니다.');
+  lines.push('- "그만 볼래", "이제 됐어", "그만할래", "쉬고 싶어" 처럼 그만하고 싶다고 하시면 photo_action 을 "stop" 으로 합니다.');
+  lines.push(`  reply 는 "${CLOSING_LINE}" 로 하고, 질문하지 않습니다.`);
   lines.push('- 이때는 사진 이야기를 더 잇지 않습니다. 넘기거나 접는 것은 화면이 합니다.');
   lines.push('  response_mode 는 BACKCHANNEL 로 합니다.');
   lines.push('- 그 밖에는 photo_action 은 늘 "none" 입니다.');
@@ -534,7 +537,7 @@ function buildVisionRules() {
  * 이번 차례에만 적용되는 제한을 문장으로 만들어 프롬프트 끝에 붙인다.
  * recall — 사진 회상 중인가 · paused — 이야기가 멈추셨고 여쭤도 되는 차례인가 (lib/reply-rules.js isPause)
  */
-function buildTurnRules(budget, mayAsk, sessionSeconds, { recall = false, paused = false } = {}) {
+function buildTurnRules(budget, mayAsk, sessionSeconds, { recall = false, paused = false, questionnaire = [] } = {}) {
   const lines = ['', '[이번 차례의 제한 — 다른 어떤 규칙보다 우선합니다]'];
   const closing = sessionSeconds >= SESSION_SECONDS;
 
@@ -543,7 +546,14 @@ function buildTurnRules(budget, mayAsk, sessionSeconds, { recall = false, paused
     : '- 직전 차례에는 질문하지 않았습니다.');
   lines.push(`- 이 주제에서 지금까지 질문을 ${budget.used}번 했습니다. (최대 ${QUESTION_BUDGET}번)`);
 
-  if (mayAsk && recall && paused) {
+  if (recall && questionnaire.length && !closing) {
+    lines.push('- 어르신 말씀에 짧게 반응한 뒤(어울리면 사진이나 이야기에 대한 한마디를 보태고),');
+    lines.push('  아래 질문지 질문 가운데 지금 이야기에 가장 어울리는 하나를 골라 그대로 여쭈어 이야기를 이어 주십시오.');
+    questionnaire.forEach((q, i) => lines.push(`  ${i + 1}) ${q.text}`));
+    lines.push('- 질문은 이 가운데 하나만 합니다. 다른 질문을 지어내지 않습니다.');
+    lines.push('- 기억이 안 난다고 하시면 [기억이 안 난다고 하실 때] 를, 다른 사진을 보자고 하시면 그 규칙을 따릅니다.');
+    lines.push('  이때는 위 질문을 하지 않습니다.');
+  } else if (mayAsk && recall && paused) {
     lines.push('- 어르신이 짧게 맺으시며 이야기가 멈추셨습니다. 반응과 함께 사진 속 다른 것이나 이어지는 이야기로');
     lines.push('  새 이야깃거리를 건네고, 열린 질문 하나로 이야기를 이어 주십시오. (SILENCE → FOLLOW_UP)');
   } else if (mayAsk && recall && !closing) {
@@ -701,12 +711,14 @@ app.post('/api/chat', async (req, res) => {
   let photoUrl = null;        // 모델에게 함께 보여 줄 사진
   let hasPhoto = false;       // 사진이 걸려 있는가 (모델이 보는지와는 별개)
   let turnCue = null;         // 이번에 건넬 수 있는 단서 한 가지 (모델에게 보여 준 것과 같다)
+  let recallMemory = null;    // 지금 함께 보는 사진 (질문지 질문을 고를 때 쓴다)
   if (req.body?.memory_id) {
     try {
       const memory = await memories.get(String(req.body.memory_id));
       if (memory) {
         /* 사진이 있으면 모델도 함께 본다. 이야깃거리(THEME)는 사진이 없다. */
         hasPhoto = memory.kind !== 'THEME' && Boolean(memory.photo?.file);
+        recallMemory = memory;
         if (VISION && hasPhoto) photoUrl = await photos.dataUrl(memory.photo.file);
         const facts = memories.facts(memory);
         memoryContext = buildMemoryContext(memory, facts, Boolean(photoUrl), history);
@@ -733,13 +745,33 @@ app.post('/api/chat', async (req, res) => {
      (문서: 종료 확인은 회상 질문 예산과 별도로 계산한다) */
   const closing = sessionSeconds >= SESSION_SECONDS;
   const recall = Boolean(req.body?.memory_id);
+  /* "그만할래", "이제 됐어" 처럼 그만하고 싶다고 하시면 모델에게 묻지 않고 정해진 인사로 마친다.
+     다른 어떤 규칙보다 먼저 따른다 (문서: STOP 의도는 다른 상태보다 우선 처리한다).
+     화면은 이 인사를 들려 드린 뒤 사진을 접고 회기를 닫는다 (photoAction: 'stop').
+     사진이 싫다고 하시는 말은 여기서 끝내지 않고 모델에게 넘겨 힘들어하심으로 표시되게 한다. */
+  if (recall && isStopIntent(lastUserText)) {
+    return res.json({
+      reply: CLOSING_LINE, emotion: 'happy', gesture: 'nod', mode: 'talk',
+      userState: 'WANTS_CHANGE', responseMode: 'BACKCHANNEL', askQuestion: false,
+      shouldClose: false, topicDistress: false, userReportedEmotion: [], pendingClaims: [],
+      photoAction: 'stop',
+    });
+  }
   /* 사진 회상 중 이야기가 멈추신 차례인가 — "그랬지 뭐", "응" 처럼 짧게 맺으셨고,
      방금 여쭌 물음에 대한 대답이 아니다. 이때는 새 이야깃거리와 열린 질문 하나로 이야기를 이어 드린다. */
   const paused = recall && isPause(lastUserText) && !budget.lastWasQuestion;
   /* 사진 회상은 친구끼리 주고받듯 — 반응 · 한마디와 함께라면 질문이 이어져도 된다.
      (질문을 한 차례씩 건너뛰게 했더니 되받기만 하는 차례가 끼어 앵무새처럼 들렸다)
      그 밖의 대화는 전처럼 질문을 연달아 하지 않는다. */
-  const mayAsk = closing || paused || (budget.left > 0 && (recall || !budget.lastWasQuestion));
+  /* 이야기를 이어 갈 질문지 질문 — 지금 이야기와 사진에 맞는 것 가운데 무작위로 셋 (lib/recall-questions.js).
+     공감만 하고 대화가 멈춘다는 피드백이 있어, 이야기하시는 차례마다 이 가운데 하나로 이어 간다. */
+  const questionnaire = recall && hasPhoto && !closing
+    ? pickQuestions(questionContext({
+      history, lastUserText, analysis: recallMemory?.analysis, importance: recallMemory?.importance,
+    }), history)
+    : [];
+  const mayAsk = closing || paused || questionnaire.length > 0
+    || (budget.left > 0 && (recall || !budget.lastWasQuestion));
   const askFollowUp = paused && !closing;
 
   const messages = [
@@ -747,7 +779,7 @@ app.post('/api/chat', async (req, res) => {
       role: 'system',
       content: buildSystemPrompt(
         charId,
-        buildTurnRules(budget, mayAsk, sessionSeconds, { recall, paused: askFollowUp }),
+        buildTurnRules(budget, mayAsk, sessionSeconds, { recall, paused: askFollowUp, questionnaire }),
         memoryContext),
     },
     ...trimmed,
@@ -861,8 +893,10 @@ app.post('/api/chat', async (req, res) => {
       let tidy = reply;
       if (!mayAsk && !exempt && !caring) tidy = dropSoftQuestions(tidy, plain);
       /* 정답이 있는 물음(언제 · 몇 · 누구 · 어디)과 함께한 사람을 짐작하는 말은 뺀다. */
-      if (!exempt && !caring) tidy = dropQuizQuestions(tidy, plain);
+      if (!exempt && !caring) tidy = dropQuizQuestions(tidy, plain, questionnaire.map((q) => q.text));
       tidy = dropGuessedPeople(tidy, userSaid, plain);
+      /* 앞에서 한 말을 그대로 되풀이한 문장은 뺀다 ("따님과 함께 가셨던 바다였군요." 를 두 번). */
+      tidy = dropRepeatedSentences(tidy, trimmed, plain);
       /* 질문만 달랑 한 답이면 반응 한마디를 앞에 붙인다. 묻기만 이어지면 기억력 검사처럼 들린다. */
       if (!exempt && !caring) tidy = withReaction(tidy, plain);
 
@@ -878,9 +912,15 @@ app.post('/api/chat', async (req, res) => {
          한 차례에 둘 다 하면 단서를 듣자마자 넘어가자는 재촉이 된다. 사진이 없는 주제에는 쓰지 않는다. */
       if (hasPhoto && parsed.user_state === 'CANNOT_RECALL') tidy = recallSteps(tidy, priorMisses(history));
 
-      /* 단서를 건네거나 · 넘어갈지 여쭙거나 · 사진을 넘기고 접는 답에는 붙이지 않는다. */
+      /* 이야기하시는 차례에는 질문지 질문 하나로 이야기를 이어 간다 — 모델이 고르지 않았으면 하나를 붙인다.
+         단서를 건네거나 · 넘어갈지 여쭙거나 · 사진을 넘기고 접는 답에는 붙이지 않는다. */
       const moving = exempt || caring || ['next', 'stop'].includes(parsed.photo_action);
-      if (followUp && !moving && !hasQuestion(tidy)) tidy = `${tidy} ${followUp}`;
+      const story = ['NEW_EVENT', 'CONTINUING', 'EMOTION', 'SILENCE'].includes(parsed.user_state);
+      if (story && !moving && questionnaire.length) {
+        tidy = withQuestionnaire(tidy, questionnaire, { fallback: plain });
+      } else if (followUp && !moving && !hasQuestion(tidy)) {
+        tidy = `${tidy} ${followUp}`;
+      }
 
       if (tidy !== reply) {
         console.warn('[chat] 답을 다듬었습니다.',
@@ -929,6 +969,16 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
+    /* 사진 이야기 중일 때만 화면이 따른다 — 다른 사진으로 넘어가기 · 그만 보기.
+       말로만 "다른 사진 볼게요" 하고 화면이 그대로면 어르신이 헷갈리신다.
+       여쭙기만 한 답("다른 사진을 한번 볼까요?")에는 따르지 않는다.
+       대답을 듣기도 전에 사진이 바뀌면 어르신이 당황하신다. */
+    const photoAction = recall && ['next', 'stop'].includes(parsed.photo_action)
+      && !hasQuestion(reply) && parsed.response_mode !== 'OFFER_CHOICE'
+      ? parsed.photo_action : 'none';
+    /* 그만 보자고 하셔서 사진을 접을 때는 늘 같은 마무리 인사로 끝낸다 (사진이 싫다고 하신 때는 빼고). */
+    if (photoAction === 'stop' && !markedDistress) reply = CLOSING_LINE;
+
     res.json({
       reply,
       emotion: String(parsed.emotion || 'neutral'),
@@ -944,13 +994,7 @@ app.post('/api/chat', async (req, res) => {
         ? parsed.user_reported_emotion.filter((e) => typeof e === 'string' && e.trim()).slice(0, 4)
         : [],
       pendingClaims: pending,
-      /* 사진 이야기 중일 때만 화면이 따른다 — 다른 사진으로 넘어가기 · 그만 보기.
-         말로만 "다른 사진 볼게요" 하고 화면이 그대로면 어르신이 헷갈리신다.
-         여쭙기만 한 답("다른 사진을 한번 볼까요?")에는 따르지 않는다.
-         대답을 듣기도 전에 사진이 바뀌면 어르신이 당황하신다. */
-      photoAction: recall && ['next', 'stop'].includes(parsed.photo_action)
-        && !hasQuestion(reply) && parsed.response_mode !== 'OFFER_CHOICE'
-        ? parsed.photo_action : 'none',
+      photoAction,
     });
   } catch (err) {
     console.error('[chat] failed', err);
