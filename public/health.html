@@ -72,23 +72,14 @@
         <span class="ctrl-label">인지치료</span>
       </button>
 
-      <button id="btn-home" class="ctrl" type="button">
+      <!-- 사진 보며 옛이야기로 바로 건너간다 -->
+      <button id="btn-other" class="ctrl" type="button">
         <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 10.5V19h11v-8.5"/>
+          <rect x="3" y="5.5" width="18" height="14" rx="2.5"/>
+          <circle cx="8.6" cy="10.4" r="1.7"/>
+          <path d="M3.5 17.5l5-4.6 4.2 3.8 3-2.6 4.8 4"/>
         </svg>
-        <span class="ctrl-label">처음으로</span>
-      </button>
-
-      <button id="btn-font" class="ctrl" type="button">
-        <span class="ctrl-icon ctrl-icon-text" aria-hidden="true">가</span>
-        <span class="ctrl-label">글자 크기<b id="font-level">크게</b></span>
-      </button>
-
-      <button id="btn-slow" class="ctrl" type="button" aria-pressed="false">
-        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="8.5"/><path d="M12 7.2v5l3.2 2"/>
-        </svg>
-        <span class="ctrl-label">천천히<b id="slow-state">꺼짐</b></span>
+        <span class="ctrl-label">회상치료</span>
       </button>
 
       <button id="btn-sound" class="ctrl" type="button" aria-pressed="true">
@@ -98,11 +89,13 @@
         <span class="ctrl-label">소리<b id="sound-state">켜짐</b></span>
       </button>
 
-      <button id="btn-swap" class="ctrl" type="button">
+      <!-- 글자 크기 · 천천히 대화 · 캐릭터 바꾸기는 설정 안에 모아 둔다 -->
+      <button id="btn-settings" class="ctrl" type="button">
         <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 8.5h13l-3-3"/><path d="M20 15.5H7l3 3"/>
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M12 4.5v2M12 17.5v2M19.5 12h-2M6.5 12h-2M17.3 6.7l-1.4 1.4M8.1 15.9l-1.4 1.4M17.3 17.3l-1.4-1.4M8.1 8.1 6.7 6.7"/>
         </svg>
-        <span class="ctrl-label">친구 바꾸기</span>
+        <span class="ctrl-label">설정</span>
       </button>
 
       <button id="btn-clear" class="ctrl" type="button">
@@ -187,10 +180,6 @@
         </svg>
         오늘 기록
       </button>
-      <button class="chip" type="button" data-say="안녕하세요, 초롱아!">안녕하세요</button>
-      <button class="chip" type="button" data-say="약 먹었어요.">약 먹었어요</button>
-      <button class="chip" type="button" data-say="요즘 몸이 조금 안 좋아요.">몸이 안 좋아요</button>
-      <button class="chip" type="button" data-say="내일부터 좀 걸어볼까 해요.">걸어볼까 해요</button>
     </div>
 
     <div class="input-row">
@@ -210,6 +199,31 @@
       </div>
     </div>
   </footer>
+
+  <!-- ================= 설정 ================= -->
+  <!-- 글자 크기 · 천천히 대화 · 캐릭터 바꾸기. 자주 쓰지 않으니 안에 넣어 둔다 -->
+  <div id="settings" class="settings" hidden role="dialog" aria-modal="true" aria-label="설정">
+    <div class="settings-box">
+      <h2 class="settings-title">설정</h2>
+
+      <button id="btn-font" class="set-row" type="button">
+        <span class="set-name">글자 크기</span>
+        <b id="font-level">크게</b>
+      </button>
+
+      <button id="btn-slow" class="set-row" type="button" aria-pressed="false">
+        <span class="set-name">천천히 대화</span>
+        <b id="slow-state">꺼짐</b>
+      </button>
+
+      <button id="btn-swap" class="set-row" type="button">
+        <span class="set-name">캐릭터 바꾸기</span>
+        <b>고르기</b>
+      </button>
+
+      <button id="btn-settings-close" class="set-close" type="button">닫기</button>
+    </div>
+  </div>
 
   <div id="toast" class="toast" role="alert" hidden></div>
 

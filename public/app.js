@@ -44,7 +44,9 @@ const ui = {
   // 인지치료 — 오늘의 활동
   cognitive: $('btn-cognitive'), cog: $('cog'), cogSay: $('cog-say'),
   cogActs: $('cog-acts'), cogClose: $('cog-close'),
-  home: $('btn-home'),
+  // 다른 챗봇으로 건너가기 · 설정 (글자 크기 · 천천히 대화 · 캐릭터 바꾸기)
+  other: $('btn-other'),
+  settings: $('settings'), settingsBtn: $('btn-settings'), settingsClose: $('btn-settings-close'),
 };
 
 /** 이 화면에 없는 단추는 조용히 건너뛴다 */
@@ -771,7 +773,17 @@ function bindControls() {
   on(ui.newChat, 'click', () => newThread());
   on(ui.cognitive, 'click', () => openCognitive());
   on(ui.cogClose, 'click', hideCog);
-  on(ui.home, 'click', () => { stopSpeaking(); window.location.href = '/'; });
+  /* 두 이야기를 오간다 — 건강관리에서는 회상치료로, 회상치료에서는 건강관리로 */
+  on(ui.other, 'click', () => {
+    stopSpeaking();
+    window.location.href = BOT === 'recall' ? '/health.html' : '/recall.html';
+  });
+
+  /* 설정 — 자주 쓰지 않는 것들을 여기 모아 두어 화면을 단정하게 둔다 */
+  const showSettings = (open) => { if (ui.settings) ui.settings.hidden = !open; };
+  on(ui.settingsBtn, 'click', () => showSettings(true));
+  on(ui.settingsClose, 'click', () => showSettings(false));
+  on(ui.settings, 'click', (e) => { if (e.target === ui.settings) showSettings(false); });
 
   ui.replay.addEventListener('click', () => {
     avatar.setEmotion(state.lastReply.emotion);
@@ -2034,6 +2046,7 @@ function destroyPickerAvatars() {
 /** 대화 중에 다시 고르고 싶을 때 */
 function openChooser() {
   stopSpeaking();
+  if (ui.settings) ui.settings.hidden = true;   // 설정 창을 닫고 고르는 화면을 연다
   pending = state.character;
   ui.splash.hidden = false;
   ui.splash.classList.remove('hide');
