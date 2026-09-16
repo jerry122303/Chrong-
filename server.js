@@ -18,6 +18,16 @@ import {
 import {
   questionContext, pickQuestions, withQuestionnaire, isStopIntent, CLOSING_LINE,
 } from './lib/recall-questions.js';
+import { CareStore } from './lib/care-store.js';
+import { buildCareContext, noteFromTalk, mountCareRoutes, DOUBLE_DOSE_ASK } from './lib/care-api.js';
+import {
+  isCrisisTalk, CRISIS_LINE, looksLikeGoal, missingPart, withGoalQuestion, dropDecidedGoals,
+} from './lib/care-rules.js';
+import { ThreadStore } from './lib/thread-store.js';
+import { mountThreadRoutes } from './lib/thread-api.js';
+import { isStopRequest, STOP_RESPONSE, hardViolation } from './lib/recall-prompt.js';
+import { recallPlan, buildRecallPrompt, tidyRecallReply, recallInfo } from './lib/recall-chat.js';
+import { summaryCard } from './lib/recall-flow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +73,10 @@ const memories = new MemoryStore(DATA_DIR);
 const sessions = new SessionStore(DATA_DIR, { keepTranscript: KEEP_TRANSCRIPT });
 const photos = new PhotoStore(DATA_DIR);
 const profiles = new ProfileStore(DATA_DIR);
+/* 건강 돌봄 — 기분 · 통증 · 복약 · 목표 · 인지 활동 · 하루 요약 (lib/care-store.js) */
+const cares = new CareStore(DATA_DIR);
+/* 옆 서랍에서 다시 여는 지난 대화 (lib/thread-store.js) */
+const threads = new ThreadStore(DATA_DIR);
 
 /* ------------------------------------------------------------------ *
  * 캐릭터 — 이름 / 성격 / 목소리
@@ -154,7 +168,10 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 3. 쉬운 우리말만 씁니다. 영어 단어, 전문 용어, 줄임말, 이모지는 절대 쓰지 않습니다.
 4. 숫자나 기호 대신 말로 풀어 씁니다. (3개 → 세 개, 10시 → 열 시)
 5. 모든 말을 질문으로 끝내지 않습니다. 질문은 한 번에 하나까지만 합니다.
-6. 어르신이 같은 이야기를 반복하셔도 처음 듣는 것처럼 반갑게 반응합니다.
+6. 같은 이야기를 다시 하셔도 처음 듣는 것처럼 반갑게 반응합니다.
+7. 상대를 '어르신'이라고 부르지 않습니다. 부르는 말 없이 이야기합니다.
+   ("어르신, 안녕하세요" 가 아니라 "안녕하세요", "어르신은 어떠셨어요?" 가 아니라 "어떠셨어요?")
+   이름을 알려 주셨다면 그 이름으로 부릅니다.
 
 [회상 대화 — 이 서비스에서 가장 중요한 규칙]
 당신은 사진을 함께 보며 옛이야기를 나누는 다정한 말동무입니다.
@@ -246,6 +263,16 @@ const buildSystemPrompt = (charId, turnRules = '', memoryContext = '') => `${pic
 - 이미 단서를 건넸는데도 여전히 기억이 안 난다고 하시면 단서를 더 드리지 않고,
   다른 사진을 보실지 쉬실지 여쭙습니다. (이때는 OFFER_CHOICE)
 - 사진 이야기 중이 아니면 안심시켜 드리고 편한 다른 이야기로 넘어갑니다.
+
+[어르신이 무언가 해 보시겠다고 하실 때 — 목표는 어르신이 정하십니다]
+"내일부터 좀 걸어볼까 해", "약을 잘 챙겨 먹어야겠어" 처럼 스스로 해 보시겠다고 하시면:
+- 절대 대신 정해 드리지 않습니다. "삼십 분씩 하세요", "아침에 하세요" 처럼 시키지 않습니다.
+  무엇을 할지, 언제 할지는 어르신이 정하십니다. 당신은 여쭙고 거들 뿐입니다.
+- 반갑게 받아 드린 뒤, 아직 정해지지 않은 것 하나만 여쭙습니다.
+  언제 → 얼마나 → 어디서 차례로, 한 번에 하나만.
+- 다 정해지셨으면 짧게 칭찬만 하고 더 얹지 않습니다.
+- 못 하셨다고 하셔도 나무라지 않습니다. 괜찮다고, 그런 날도 있다고 말씀드립니다.
+- 어르신이 하신 말씀을 goal 에 담습니다. 말씀하지 않으신 것은 담지 않습니다.
 
 [대화 주제]
 건강, 식사, 날씨, 가족, 옛날 이야기, 취미, 오늘 하루 등 편안한 일상 이야기를 나눕니다.
@@ -383,6 +410,9 @@ ${memoryContext}${turnRules}`;
  * 그래서 지난 이력에서 질문을 몇 번 했는지 세어 이번 차례에 질문해도 되는지를
  * 코드가 정하고, 답이 돌아온 뒤에도 한 번 더 검사한다.
  * ------------------------------------------------------------------ */
+
+/* 기억이 잘 안 나신다고 하시는 말씀 — 회상치료 챗봇이 단서 사다리로 갈아타는 자리 */
+const CANNOT_RECALL = /기억(이|은|도)? ?안 ?나|생각(이|은|도)? ?안 ?나|모르겠|몰라|가물가물|글쎄/;
 
 /** 한 주제로 볼 최근 아바타 발화 수 */
 const TOPIC_WINDOW = 6;
@@ -593,7 +623,7 @@ const REPLY_SCHEMA = {
     additionalProperties: false,
     required: ['reply', 'user_state', 'response_mode', 'ask_question',
                'emotion', 'gesture', 'mode', 'extracted_facts', 'user_reported_emotion',
-               'topic_distress', 'photo_action', 'reflection'],
+               'topic_distress', 'photo_action', 'reflection', 'goal'],
     properties: {
       reply: { type: 'string', description: '어르신께 드릴 말. 절대 비워 두지 않는다.' },
       user_state: {
@@ -650,6 +680,20 @@ const REPLY_SCHEMA = {
         type: 'string',
         enum: ['none', 'next', 'stop'],
         description: '다른 사진을 보자고 하시면 next, 그만 보자 · 쉬자고 하시면 stop, 그 밖에는 none.',
+      },
+
+      /* 어르신이 스스로 해 보시겠다고 말씀하신 것 (Bloom 목표 설정).
+         어르신이 말씀하신 것만 담는다. 당신이 권한 것이나 지어낸 것은 담지 않는다.
+         말씀이 없으면 has_goal 은 거짓, text 는 빈 문자열이다. */
+      goal: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['has_goal', 'text', 'is_specific'],
+        properties: {
+          has_goal: { type: 'boolean', description: '어르신이 무언가 해 보시겠다고 말씀하셨는가' },
+          text: { type: 'string', description: '어르신 표현을 살려 짧게 (예: 아침 먹고 공원 한 바퀴 걷기)' },
+          is_specific: { type: 'boolean', description: '언제 · 얼마나 · 어디서가 충분히 정해졌는가' },
+        },
       },
 
       /* 반응 한마디. reply 를 다듬다 남는 말이 없거나 질문만 남았을 때 앞에 쓴다 (lib/reply-rules.js) */
@@ -745,16 +789,40 @@ app.post('/api/chat', async (req, res) => {
      (문서: 종료 확인은 회상 질문 예산과 별도로 계산한다) */
   const closing = sessionSeconds >= SESSION_SECONDS;
   const recall = Boolean(req.body?.memory_id);
+  /* 어느 챗봇에서 온 말씀인가.
+     recall — 회상치료 챗봇. 팀에서 받은 시스템 프롬프트(prompts/recall-system.txt)를 그대로 쓴다.
+     health — Bloom 기반 건강관리 챗봇. 지금까지의 초롱이 규칙에 오늘 돌봄을 얹는다.
+     화면이 말해 주지 않으면 사진을 보고 있는지로 가른다 (예전 화면도 그대로 돌아간다). */
+  const botMode = ['recall', 'health'].includes(String(req.body?.bot))
+    ? String(req.body.bot) : (recall ? 'recall' : 'health');
+  const recallBot = botMode === 'recall';
+  /* 스스로를 해치겠다는 말씀은 다른 무엇보다 먼저다. 모델에게 맡기지 않고 정해진 안내를 드린다.
+     상담 전화번호를 모델이 지어내면 큰일이고, 이 말씀에 회상 질문이 이어져서도 안 된다.
+     "머리가 멍해요", "자꾸 깜빡해요" 같은 말씀은 여기 걸리지 않는다 — 인지 저하는 위기가 아니다
+     (인수인계 문서에 실제로 있던 오판이다. lib/care-rules.js). */
+  if (isCrisisTalk(lastUserText)) {
+    console.warn('[chat] 위기 신호로 보아 정해진 안내를 드립니다.');
+    return res.json({
+      reply: CRISIS_LINE, emotion: 'worried', gesture: 'droop', mode: 'talk',
+      userState: 'DISTRESS', responseMode: 'SAFETY_FLOW', askQuestion: false,
+      shouldClose: false, topicDistress: false, userReportedEmotion: [], pendingClaims: [],
+      photoAction: 'none', careAsk: null, goal: null,
+    });
+  }
   /* "그만할래", "이제 됐어" 처럼 그만하고 싶다고 하시면 모델에게 묻지 않고 정해진 인사로 마친다.
      다른 어떤 규칙보다 먼저 따른다 (문서: STOP 의도는 다른 상태보다 우선 처리한다).
      화면은 이 인사를 들려 드린 뒤 사진을 접고 회기를 닫는다 (photoAction: 'stop').
      사진이 싫다고 하시는 말은 여기서 끝내지 않고 모델에게 넘겨 힘들어하심으로 표시되게 한다. */
-  if (recall && isStopIntent(lastUserText)) {
+  if ((recall || recallBot) && (isStopIntent(lastUserText) || isStopRequest(lastUserText))) {
     return res.json({
-      reply: CLOSING_LINE, emotion: 'happy', gesture: 'nod', mode: 'talk',
+      /* 회상치료 챗봇은 팀 프롬프트가 정한 마무리 문장을 쓴다 (system_prompt.txt 19번) */
+      reply: recallBot ? STOP_RESPONSE : CLOSING_LINE,
+      emotion: 'happy', gesture: 'nod', mode: 'talk',
       userState: 'WANTS_CHANGE', responseMode: 'BACKCHANNEL', askQuestion: false,
       shouldClose: false, topicDistress: false, userReportedEmotion: [], pendingClaims: [],
-      photoAction: 'stop',
+      photoAction: 'stop', careAsk: null, goal: null, bot: botMode,
+      /* 마칠 때는 오늘 떠올린 기억을 정해진 꼴로 정리해 드린다 (회의 피드백) */
+      summary: recallBot ? summaryCard(trimmed) : null,
     });
   }
   /* 사진 회상 중 이야기가 멈추신 차례인가 — "그랬지 뭐", "응" 처럼 짧게 맺으셨고,
@@ -774,14 +842,52 @@ app.post('/api/chat', async (req, res) => {
     || (budget.left > 0 && (recall || !budget.lastWasQuestion));
   const askFollowUp = paused && !closing;
 
+  /* 어르신 말씀에서 코드가 알아본 것(기분 · 약)을 먼저 남기고,
+     오늘 돌봄에서 초롱이가 알아야 할 것만 골라 프롬프트에 붙인다 (lib/care-api.js).
+     기록에 실패해도 대화는 그대로 이어 간다. */
+  const ownerId = owner(req);
+  let careContext = '';
+  let careNote = { ask: null, medicationAgain: false };
+  /* 이미 정해 두신 목표. 아직 구체화 중이면 이어지는 대답도 그 목표를 채우는 말이다 */
+  let draftGoal = null;
+  try {
+    careNote = await noteFromTalk(cares, ownerId, lastUserText, { history: trimmed });
+    const careData = await cares.get(ownerId);
+    draftGoal = cares.activeGoal(careData);
+    careContext = buildCareContext(careData, { lastUserText, history: trimmed });
+  } catch (err) {
+    console.warn('[chat] 돌봄 기록을 읽지 못했습니다', err.message);
+  }
+
+  /* 회상치료 챗봇은 이번 차례에 무엇을 할지부터 정한다 —
+     여섯 단계 가운데 어디를 여쭐지, 기억이 안 나시면 어떤 단서를 건넬지 (lib/recall-chat.js) */
+  const plan = recallBot
+    ? recallPlan({
+      history: trimmed,
+      lastUserText,
+      analysis: recallMemory?.analysis,
+      memory: recallMemory,
+      cannotRecall: CANNOT_RECALL.test(lastUserText),
+    })
+    : null;
+
+  const systemPrompt = recallBot
+    ? buildRecallPrompt({
+      character: pickCharacter(charId),
+      memory: recallMemory,
+      analysis: recallMemory?.analysis,
+      memoryContext,
+      history: trimmed,
+      lastUserText,
+      plan,
+    })
+    : buildSystemPrompt(
+      charId,
+      buildTurnRules(budget, mayAsk, sessionSeconds, { recall, paused: askFollowUp, questionnaire }),
+      memoryContext + careContext);
+
   const messages = [
-    {
-      role: 'system',
-      content: buildSystemPrompt(
-        charId,
-        buildTurnRules(budget, mayAsk, sessionSeconds, { recall, paused: askFollowUp, questionnaire }),
-        memoryContext),
-    },
+    { role: 'system', content: systemPrompt },
     ...trimmed,
   ];
 
@@ -886,7 +992,26 @@ app.post('/api/chat', async (req, res) => {
        · 정답이 있는 물음과 함께한 사람을 짐작하는 말 — "언제부터 ~?", "친구분들과 가셨나 봐요".
        · 이야기가 멈추셨는데 여쭙지 않은 답 — 열린 질문 하나를 붙인다 (④). */
     const hard = parsed.response_mode === 'SAFETY_FLOW' || parsed.response_mode === 'HEALTH_CARE';
-    if (recall && mode !== 'story' && !hard) {
+
+    /* 회상치료 챗봇 — 팀 프롬프트의 규칙으로 다듬는다.
+       두 문장까지 · 질문 하나까지 · 사진 한 장에 다섯 번까지 · 잇달아 두 번 물었으면 쉬기.
+       (app.py 가 들고 있던 상태 관리를 대화 기록에서 다시 세어 옮긴 것이다) */
+    let recallOut = null;
+    if (recallBot && mode !== 'story' && !hard) {
+      const plain = safeReflection(parsed.reflection, userSaid) || plainReaction(trimmed);
+      const tidied = tidyRecallReply(reply, {
+        history: trimmed, userSaid, turnCue, plain, mayAsk: plan.state.mayAsk,
+      });
+      if (tidied !== reply) {
+        console.warn('[chat] 회상 답을 다듬었습니다.', { mode: plan.mode, area: plan.area });
+        reply = tidied;
+      }
+      const broke = hardViolation(reply, plan.state);
+      if (broke) console.warn('[chat] 회상 규칙 위반이 남았습니다 —', broke);
+      recallOut = recallInfo(plan, reply);
+    }
+
+    if (recall && !recallBot && mode !== 'story' && !hard) {
       /* 모델이 따로 보낸 반응 한마디 — 걷어내고 나니 남는 말이 없거나 질문만 남았을 때 앞에 쓴다.
          그것도 못 쓰면 짧은 맞장구 (바로 앞과 겹치지 않게) */
       const plain = safeReflection(parsed.reflection, userSaid) || plainReaction(trimmed);
@@ -979,6 +1104,33 @@ app.post('/api/chat', async (req, res) => {
     /* 그만 보자고 하셔서 사진을 접을 때는 늘 같은 마무리 인사로 끝낸다 (사진이 싫다고 하신 때는 빼고). */
     if (photoAction === 'stop' && !markedDistress) reply = CLOSING_LINE;
 
+    /* 어르신이 스스로 해 보시겠다고 하신 것을 목표로 남긴다 (Bloom 목표 설정).
+       모델이 지어낸 목표는 담지 않는다 — 어르신 말씀에 그런 결이 실제로 있어야 한다.
+       아직 언제 · 얼마나 · 어디서가 정해지지 않았으면 그 하나만 여쭙게 하고,
+       대신 정해 주는 말("삼십 분씩 걸으세요")은 걷어낸다. */
+    let goalSaved = null;
+    /* 이어지는 대답으로 목표를 채우실 때도 받는다. "아침 먹고 나서요" 에는 목표다운 말이 없지만,
+       구체화 중인 목표가 있으면 그 대답이 곧 목표의 '언제' 다 (실제 대화에서 놓쳤다). */
+    const fillingGoal = Boolean(draftGoal && draftGoal.status === 'drafting');
+    if (parsed.goal?.has_goal && String(parsed.goal.text || '').trim()
+        && (looksLikeGoal(lastUserText) || fillingGoal)
+        && photoAction === 'none' && !markedDistress) {
+      const part = parsed.goal.is_specific ? 'none' : missingPart(parsed.goal.text, userSaid);
+      try {
+        goalSaved = await cares.saveGoal(ownerId, {
+          text: String(parsed.goal.text).trim(),
+          is_specific: part === 'none',
+          missing_part: part,
+        });
+      } catch (err) {
+        console.warn('[chat] 목표를 남기지 못했습니다', err.message);
+      }
+      reply = withGoalQuestion(dropDecidedGoals(reply, '그렇게 생각하셨군요.'), part);
+    }
+
+    /* 방금 약을 드셨다는데 조금 전에도 드신 기록이 있으면, 나무라지 않고 한 번만 여쭙는다 */
+    if (careNote.medicationAgain && !hasQuestion(reply)) reply = `${reply} ${DOUBLE_DOSE_ASK}`;
+
     res.json({
       reply,
       emotion: String(parsed.emotion || 'neutral'),
@@ -995,6 +1147,12 @@ app.post('/api/chat', async (req, res) => {
         : [],
       pendingClaims: pending,
       photoAction,
+      /* 화면이 띄울 카드 — 아프다고 하시면 어디가 얼마나 아프신지 여쭙는다 */
+      careAsk: careNote.ask,
+      goal: goalSaved,
+      /* 회상치료 챗봇 — 이번에 여쭌 단계와 남은 질문 횟수 (화면이 보여 준다) */
+      recall: recallOut,
+      bot: botMode,
     });
   } catch (err) {
     console.error('[chat] failed', err);
@@ -1642,6 +1800,13 @@ app.get('/api/sessions', async (req, res) => {
 app.get('/api/sessions/metrics', async (req, res) => {
   res.json({ metrics: await sessions.metrics(owner(req)) });
 });
+
+/* 건강 돌봄 — 기분 · 통증 · 복약 · 목표 · 오늘의 활동 · 하루 요약 (lib/care-api.js).
+   owner 와 fail 이 위에서 정해진 뒤에 얹는다. */
+mountCareRoutes(app, { store: cares, owner, fail });
+
+/* 지난 대화 — 옆 서랍에서 골라 다시 연다 (lib/thread-api.js) */
+mountThreadRoutes(app, { store: threads, owner, fail });
 
 app.get('/api/health', (_req, res) => {
   res.json({

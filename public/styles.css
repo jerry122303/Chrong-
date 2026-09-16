@@ -86,6 +86,9 @@ body {
   padding: 24px;
 }
 .splash.hide { opacity: 0; pointer-events: none; transition: opacity .45s ease; }
+/* display 를 여기서 주고 있으므로 hidden 만으로는 가려지지 않는다.
+   말동무 고르기는 [친구 바꾸기] 를 누르실 때만 열려야 한다 */
+.splash[hidden] { display: none; }
 
 .splash-inner { max-width: 900px; width: 100%; }
 
@@ -916,6 +919,282 @@ body.has-keybar { grid-template-rows: auto auto 1fr auto; }
 .rate-btn:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
 /* 금색 별은 꾸밈이다. 버튼 이름은 글자로 읽힌다 */
 .rate-stars { color: #C9921A; letter-spacing: 1px; font-size: calc(var(--base) * .92); }
+
+/* ==================================================================
+ *  건강 돌봄 — 한 번에 하나만 여쭙는 큰 카드
+ *  기분 · 아픈 곳 · 약 · 오늘의 활동 · 목표.
+ *  버튼을 늘어놓으면 어르신이 무엇을 눌러야 할지 헤매신다.
+ * ================================================================== */
+.care {
+  flex: 0 0 auto;
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--brand);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.care[hidden] { display: none; }
+.care-q {
+  margin: 0;
+  font-size: calc(var(--base) * .96);
+  font-weight: 700;
+  color: var(--ink);
+}
+.care-note {
+  margin: -4px 0 0;
+  font-size: calc(var(--base) * .78);
+  color: var(--ink-2);
+  /* 오늘 기록과 오늘 떠올린 기억은 줄을 나눠 보여 드린다 */
+  white-space: pre-line;
+  line-height: 1.6;
+}
+.care-note[hidden] { display: none; }
+.care-acts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.care-btn {
+  font: inherit;
+  font-size: calc(var(--base) * .84);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-btn);
+  padding: 9px 10px;
+  min-height: 54px;
+  cursor: pointer;
+}
+.care-btn:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+.care-primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.care-primary:hover { background: var(--brand-2); color: #fff; }
+/* 지금 하고 싶지 않으실 수 있다. 빠져나갈 길을 늘 둔다 */
+.care-later {
+  align-self: flex-start;
+  font: inherit;
+  font-size: calc(var(--base) * .76);
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.care-later:hover { color: var(--brand); }
+
+/* 자주 쓰는 말 줄의 돌봄 버튼 — 회상 버튼과 나란히, 칩보다 또렷하게 */
+.btn-care {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: calc(var(--base) * .76);
+  font-weight: 700;
+  color: var(--brand);
+  background: var(--card);
+  border: 1px solid var(--brand-line);
+  border-radius: 999px;
+  padding: 7px 16px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.btn-care:hover { background: var(--brand-soft); border-color: var(--brand); }
+.care-icon {
+  width: 1.2em; height: 1.2em;
+  fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* ==================================================================
+ *  시작 화면 — 두 가지 이야기 가운데 고르기
+ *  (건강관리 · 회상치료. 말동무는 들어가서 고른다)
+ * ================================================================== */
+.choose {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px 48px;
+  background: var(--bg);
+}
+.choose-inner { width: 100%; max-width: 860px; text-align: center; }
+.choose-title {
+  font-size: calc(var(--base) * 1.5);
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+.choose-desc {
+  margin: 0 0 28px;
+  color: var(--ink-2);
+  font-size: calc(var(--base) * .92);
+}
+.choose-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+}
+.choose-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 20px 24px;
+  background: var(--card);
+  border: 2px solid var(--line-2);
+  border-radius: var(--r-card);
+  font-family: inherit;
+  color: inherit;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.choose-card:hover {
+  border-color: var(--brand);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.choose-art {
+  width: 100%;
+  height: min(24vh, 180px);
+  display: grid;
+  place-items: center;
+}
+.choose-art svg { width: auto; height: 100%; max-width: 100%; display: block; }
+.choose-name {
+  font-size: calc(var(--base) * 1.1);
+  font-weight: 700;
+  color: var(--brand);
+}
+.choose-what {
+  font-size: calc(var(--base) * .84);
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ==================================================================
+ *  옆 서랍 — 지난 대화를 골라 다시 연다
+ * ================================================================== */
+.drawer {
+  position: fixed;
+  z-index: 60;
+  top: 0; bottom: 0; left: 0;
+  width: min(340px, 86vw);
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform .2s ease;
+}
+body.drawer-open .drawer { transform: none; box-shadow: 0 0 40px rgba(30, 40, 35, .18); }
+.drawer[hidden] { display: none; }
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer-title { font-weight: 700; font-size: calc(var(--base) * .92); margin-right: auto; }
+.drawer-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.drawer-row { display: flex; align-items: center; gap: 2px; }
+.drawer-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-btn);
+  font: inherit;
+  font-size: calc(var(--base) * .82);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.drawer-item:hover { background: var(--brand-soft); border-color: var(--brand-line); }
+.drawer-item.on { background: var(--brand-soft); border-color: var(--brand); font-weight: 700; }
+.drawer-when { font-size: calc(var(--base) * .68); color: var(--ink-3); }
+.drawer-empty { color: var(--ink-3); font-size: calc(var(--base) * .8); padding: 14px 12px; }
+.drawer-del {
+  font: inherit; font-size: calc(var(--base) * .74); color: var(--ink-3);
+  background: none; border: 0; cursor: pointer; padding: 2px 4px;
+}
+.drawer-del:hover { color: var(--danger); }
+
+.btn-new {
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 11px 14px;
+  font: inherit;
+  font-size: calc(var(--base) * .84);
+  font-weight: 700;
+  color: #fff;
+  background: var(--brand);
+  border: 1px solid var(--brand);
+  border-radius: var(--r-btn);
+  cursor: pointer;
+}
+.btn-new:hover { background: var(--brand-2); }
+
+/* ==================================================================
+ *  인지치료 — 오늘의 활동 한 가지
+ * ================================================================== */
+.cog {
+  flex: 0 0 auto;
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--brand);
+  border-radius: var(--r-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cog[hidden] { display: none; }
+.cog-title {
+  margin: 0;
+  font-size: calc(var(--base) * .78);
+  font-weight: 700;
+  color: var(--brand);
+}
+.cog-say {
+  margin: 0;
+  font-size: calc(var(--base) * 1.02);
+  font-weight: 700;
+  line-height: 1.5;
+}
+.cog-acts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+/* 서랍을 여는 단추와 뒤 가림막 */
+.scrim {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(20, 26, 23, .32);
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s ease;
+}
+body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 .rate-avoid {
   grid-column: 1 / -1;
   flex-direction: row;

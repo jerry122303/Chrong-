@@ -9,6 +9,10 @@ import { openingLine } from './recall-opening.js';
 
 const $ = (id) => document.getElementById(id);
 
+/* 이 화면이 어느 챗봇인가. 회상치료(recall)와 건강관리(health)는 규칙도 화면도 다르다.
+   같은 코드로 두 화면을 다루되, 없는 단추는 건드리지 않는다 (화면마다 단추가 다르다). */
+const BOT = document.body.dataset.bot === 'recall' ? 'recall' : 'health';
+
 const ui = {
   splash: $('splash'), start: $('btn-start'),
   avatar: $('avatar'), status: $('status'), statusText: $('status-text'),
@@ -31,10 +35,28 @@ const ui = {
   attach: $('btn-attach'), filePhoto: $('file-photo'),
   composer: document.querySelector('.composer'),
   rate: $('rate'), rateMeta: $('rate-meta'),
+  care: $('care'), careQ: $('care-q'), careNote: $('care-note'),
+  careActs: $('care-acts'), careLater: $('care-later'),
+  mood: $('btn-mood'), activity: $('btn-activity'), report: $('btn-report'),
+  // 옆 서랍 — 지난 대화
+  drawer: $('drawer'), scrim: $('scrim'), drawerList: $('drawer-list'),
+  drawerBtn: $('btn-drawer'), drawerClose: $('btn-drawer-close'), newChat: $('btn-new'),
+  // 인지치료 — 오늘의 활동
+  cognitive: $('btn-cognitive'), cog: $('cog'), cogSay: $('cog-say'),
+  cogActs: $('cog-acts'), cogClose: $('cog-close'),
+  home: $('btn-home'),
 };
 
-const greetingFor = (id) =>
-  `안녕하세요, 어르신! 저는 ${(CHARACTERS[id] || CHARACTERS[DEFAULT_CHARACTER]).name}입니다. 오늘 하루는 어떻게 보내셨어요?`;
+/** 이 화면에 없는 단추는 조용히 건너뛴다 */
+const on = (el, event, fn) => { if (el) el.addEventListener(event, fn); };
+
+/* 부르는 말 없이 인사한다. '어르신'이라 불리는 것이 불편하신 분도 계신다 */
+const greetingFor = (id) => {
+  const name = (CHARACTERS[id] || CHARACTERS[DEFAULT_CHARACTER]).name;
+  return BOT === 'recall'
+    ? `안녕하세요. 저는 ${name}입니다. 사진을 보며 옛이야기를 함께 나눠요.`
+    : `안녕하세요. 저는 ${name}입니다. 오늘 하루는 어떠셨어요?`;
+};
 
 const state = {
   history: [],
@@ -56,6 +78,12 @@ const state = {
   // state.memory 와 따로 붙들어 둔다.
   pendingMemoryId: null,
   waited: false,        // 이번 차례에 '천천히 생각하셔도 괜찮아요'를 이미 안내했는지
+  // 오늘 돌봄 — 기분을 여쭈었는지, 약 드실 때가 되었는지, 고르실 낱말 (서버가 알려 준다)
+  care: null,
+  // 이 화면이 어느 챗봇인지. 서버가 규칙을 가를 때 쓴다
+  bot: BOT,
+  // 옆 서랍에 남는 지금 대화 (들어오면 늘 새 대화다)
+  threadId: null,
 };
 
 /** 지금 고른 말동무의 이름 */
@@ -178,6 +206,7 @@ function loadHistory() {
 async function applyReply(data) {
   state.history.push({ role: 'assistant', content: data.reply });
   saveHistory();
+  noteThread('assistant', data.reply);   // 옆 서랍에 남긴다
   noteTurn({
     role: 'assistant',
     text: data.reply,
@@ -205,6 +234,12 @@ async function applyReply(data) {
   avatar.playGesture(data.gesture);
 
   await speak(data.reply, data.emotion, data.mode);
+
+  /* 회상 대화를 마칠 때 — 오늘 떠올린 기억을 정해진 꼴로 보여 드린다 */
+  if (data.summary && (data.summary.lines || []).length) showSummary(data.summary);
+
+  /* 말이 끝난 뒤에 돌봄 카드를 띄운다. 말하는 중에 띄우면 듣다 말고 누르신다 */
+  afterCare(data);
 }
 
 async function sendMessage(text) {
@@ -219,6 +254,7 @@ async function sendMessage(text) {
   addMessage('me', message);
   state.history.push({ role: 'user', content: message });
   noteTurn({ role: 'user', text: message });
+  noteThread('user', message);   // 옆 서랍에 남긴다
 
   state.busy = true;
   ui.send.disabled = true;
@@ -237,6 +273,8 @@ async function sendMessage(text) {
         // 아이디만 보낸다. 어떤 내용을 말해도 되는지는 서버가 정한다.
         memory_id: state.memory ? state.memory.memory_id : null,
         session_id: state.sessionId,
+        // 회상치료와 건강관리는 프롬프트도 규칙도 다르다 (server.js 가 가른다)
+        bot: state.bot,
       }),
     });
 
@@ -705,23 +743,12 @@ function bindControls() {
     toast(state.soundOn ? '소리를 켰어요' : '소리를 껐어요. 글자로 보실 수 있어요');
   });
 
-  ui.clear.addEventListener('click', () => {
-    stopSpeaking();
-    hideKeep();
+  /* '대화 지우기' 는 곧 새 대화다. 지난 이야기는 옆 서랍에 그대로 남는다 */
+  on(ui.clear, 'click', async () => {
     closeSession('USER');
-    showMemory(null);
-    ui.memoryPhoto.removeAttribute('src');
-    state.history = [];
-    state.sessionStart = 0;
-    state.waited = false;
-    state.seenMemories = [];
     localStorage.removeItem('chorong-history');
-    ui.log.innerHTML = '';
-    ui.subtitle.textContent = greetingFor(state.character);
-    addMessage('sys', '새로 이야기를 시작해요');
-    avatar.setEmotion('happy');
-    avatar.playGesture('flap');
-    toast('대화를 지웠어요');
+    await newThread();
+    toast('새 대화를 시작했어요');
   });
 
   ui.send.addEventListener('click', () => sendMessage(ui.input.value));
@@ -730,6 +757,21 @@ function bindControls() {
   });
 
   ui.mic.addEventListener('click', toggleMic);
+
+  /* 건강 돌봄 — 스스로 누르실 수 있는 것은 이 둘뿐이다 (건강관리 화면에만 있다) */
+  on(ui.mood, 'click', () => askMood());
+  on(ui.activity, 'click', () => startActivity());
+  on(ui.careLater, 'click', () => hideCare());
+  on(ui.report, 'click', () => showTodayReport());
+
+  /* 옆 서랍 · 인지치료 · 처음으로 */
+  on(ui.drawerBtn, 'click', () => showDrawer(!document.body.classList.contains('drawer-open')));
+  on(ui.drawerClose, 'click', () => showDrawer(false));
+  on(ui.scrim, 'click', () => showDrawer(false));
+  on(ui.newChat, 'click', () => newThread());
+  on(ui.cognitive, 'click', () => openCognitive());
+  on(ui.cogClose, 'click', hideCog);
+  on(ui.home, 'click', () => { stopSpeaking(); window.location.href = '/'; });
 
   ui.replay.addEventListener('click', () => {
     avatar.setEmotion(state.lastReply.emotion);
@@ -771,6 +813,7 @@ function bindControls() {
  *   [기억 회상 지원] 에서 빠진다.
  */
 function showMemory(memory, { preview = false } = {}) {
+  if (!ui.memory) return;      // 사진 칸이 없는 화면(건강관리)에서는 할 일이 없다
   if (!preview) {
     state.memory = memory;
     if (memory && !state.seenMemories.includes(memory.memory_id)) {
@@ -834,6 +877,7 @@ async function noteTurn(turn) {
 async function closeSession(endedBy) {
   if (!state.sessionId) return;
   const id = state.sessionId;
+  const topic = state.memory ? (state.memory.title || '사진 이야기') : '';
   state.sessionId = null;
   try {
     await fetch(`/api/sessions/${id}/close`, {
@@ -841,6 +885,8 @@ async function closeSession(endedBy) {
       body: JSON.stringify({ ended_by: endedBy || 'USER' }),
     });
   } catch { /* 무시 */ }
+  /* 오늘 나눈 이야기를 한 줄로 남긴다. 다음에 만나면 초롱이가 이 한 줄로 말문을 연다 */
+  careApi('/api/care/summary', { topics: topic ? [topic] : [] });
 }
 
 /* --- 기억으로 남길지 여쭙기 (문서 9번 VERIFY_NEW_INFORMATION) ----
@@ -854,10 +900,11 @@ const FIELD_NAME = {
 };
 
 function hideKeep() {
-  ui.keep.hidden = true;
-  ui.keepList.innerHTML = '';
   state.pending = [];
   state.pendingMemoryId = null;
+  if (!ui.keep) return;        // 건강관리 화면에는 이 칸이 없다
+  ui.keep.hidden = true;
+  ui.keepList.innerHTML = '';
 }
 
 /** 아직 확인 못 받은 이야기가 있으면 보여 준다. 있으면 true */
@@ -902,8 +949,8 @@ async function decideKeep(keep) {
   toast(keep ? '기억으로 남겨 두었어요' : '남기지 않았어요');
 }
 
-ui.keepYes.addEventListener('click', () => decideKeep(true));
-ui.keepNo.addEventListener('click', () => decideKeep(false));
+on(ui.keepYes, 'click', () => decideKeep(true));
+on(ui.keepNo, 'click', () => decideKeep(false));
 
 /**
  * [기억 회상 지원] 에 띄울 사진 — 올리신 사진 중 추천 점수가 가장 높은 것.
@@ -1143,7 +1190,7 @@ function askImportance(memory, exif) {
   ui.rate.hidden = false;
   revealRate();
 
-  const line = '사진 잘 받았어요. 이 사진이 어르신께 얼마나 소중한지 골라 주세요.';
+  const line = '사진 잘 받았어요. 이 사진이 얼마나 소중한지 골라 주세요.';
   ui.subtitle.textContent = line;
   addMessage('bot', line);
   avatar.setEmotion('happy');
@@ -1187,7 +1234,7 @@ async function chooseImportance(choice) {
   await speak(line, choice.avoid ? 'neutral' : 'happy', 'talk');
 }
 
-ui.rate.addEventListener('click', (e) => {
+on(ui.rate, 'click', (e) => {
   const btn = e.target.closest('.rate-btn');
   if (!btn) return;
   chooseImportance(btn.dataset.avoid
@@ -1195,8 +1242,8 @@ ui.rate.addEventListener('click', (e) => {
     : { avoid: false, importance: Number(btn.dataset.importance) });
 });
 
-ui.attach.addEventListener('click', () => ui.filePhoto.click());
-ui.filePhoto.addEventListener('change', (e) => attachPhoto(e.target.files[0]));
+on(ui.attach, 'click', () => ui.filePhoto.click());
+on(ui.filePhoto, 'change', (e) => attachPhoto(e.target.files[0]));
 
 /* 끌어다 놓기 — 컴퓨터에서 쓰실 때 편하다 */
 ['dragenter', 'dragover'].forEach((ev) =>
@@ -1236,6 +1283,7 @@ document.addEventListener('paste', (e) => {
  */
 async function openRecall(memory, { fresh = false } = {}) {
   if (fresh) hideKeep();
+  hideCare();   // 사진 이야기를 시작하면 돌봄 카드는 접는다 (한 번에 하나)
   showMemory(memory);
   if (!state.sessionStart) state.sessionStart = Date.now();
   await startSession(memory.memory_id);
@@ -1341,16 +1389,576 @@ async function stopMemoryTalk() {
   }
 }
 
-ui.recall.addEventListener('click', () => {
+on(ui.recall, 'click', () => {
   if (state.memory) stopMemoryTalk();
   else startRecall();
 });
 
-ui.closePhoto.addEventListener('click', stopMemoryTalk);
+on(ui.closePhoto, 'click', stopMemoryTalk);
 
-ui.nextPhoto.addEventListener('click', async () => {
+on(ui.nextPhoto, 'click', async () => {
   if (!(await nextRecallPhoto())) sayNoMorePhotos();
 });
+
+/* ==================================================================
+ *  건강 돌봄 — 오늘 기분 · 아픈 곳 · 약 · 오늘의 활동 · 목표
+ *
+ *  어르신 화면은 단정해야 한다. 버튼을 늘어놓으면 무엇을 눌러야 할지
+ *  헤매신다. 그래서 한 번에 하나만 큰 카드로 여쭙고, 고르시면 바로 닫는다.
+ *
+ *  무엇을 여쭐지는 대부분 서버가 알려 준다 (careAsk) — 아프다고 하시면
+ *  어디가 얼마나 아프신지, 약을 깜빡하셨다면 약을. 어르신이 먼저 누르실 수
+ *  있는 것은 [오늘 기분] 과 [오늘의 활동] 둘뿐이다.
+ * ================================================================== */
+
+/* 서버가 알려 주기 전에 쓸 기본값 (lib/care-records.js 와 같은 낱말이다) */
+const CARE_FALLBACK = {
+  moods: [
+    { key: 'great', label: '아주 좋아요', score: 1 },
+    { key: 'good', label: '좋아요', score: 0.5 },
+    { key: 'soso', label: '그저 그래요', score: 0 },
+    { key: 'bad', label: '안 좋아요', score: -0.5 },
+    { key: 'awful', label: '아주 안 좋아요', score: -1 },
+  ],
+  pain_parts: ['머리', '어깨', '허리', '무릎', '다리', '팔', '배', '가슴', '그 밖'],
+  pain_levels: [
+    { key: 'mild', label: '조금 아파요', score: 3 },
+    { key: 'moderate', label: '많이 아파요', score: 6 },
+    { key: 'severe', label: '아주 많이 아파요', score: 9 },
+  ],
+};
+
+const careOptions = () => ({ ...CARE_FALLBACK, ...(state.care || {}) });
+
+/** 돌봄 길에 다녀온다. 실패해도 대화는 이어 가야 하므로 조용히 null 을 돌려준다 */
+async function careApi(url, body) {
+  try {
+    const res = await fetch(url, body
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      : undefined);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function hideCare() {
+  ui.care.hidden = true;
+  ui.careActs.innerHTML = '';
+  ui.careNote.hidden = true;
+}
+
+/**
+ * 카드 하나를 띄운다.
+ * say 가 참이면 초롱이가 소리 내어 여쭙는다 (방금 다른 말을 했으면 겹치지 않게 거짓으로 둔다).
+ */
+function showCare({ question, note = '', acts = [], say = true }) {
+  ui.careQ.textContent = question;
+  ui.careNote.textContent = note;
+  ui.careNote.hidden = !note;
+  ui.careActs.innerHTML = '';
+
+  for (const act of acts) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'care-btn' + (act.primary ? ' care-primary' : '');
+    btn.textContent = act.label;
+    btn.addEventListener('click', act.onClick);
+    ui.careActs.appendChild(btn);
+  }
+  ui.care.hidden = false;
+
+  if (say) {
+    ui.subtitle.textContent = question;
+    addMessage('bot', question);
+    speak(question, 'happy', 'talk');
+  }
+}
+
+/** 카드를 닫은 뒤 초롱이가 한마디 한다. 대화 기록에도 남겨 다음 차례에 이어진다 */
+async function careSay(line, emotion = 'happy') {
+  ui.subtitle.textContent = line;
+  addMessage('bot', line);
+  state.history.push({ role: 'assistant', content: line });
+  state.lastReply = { text: line, emotion, mode: 'talk' };
+  saveHistory();
+  avatar.setEmotion(emotion);
+  avatar.playGesture('nod');
+  await speak(line, emotion, 'talk');
+}
+
+/* --- 오늘 기분 -------------------------------------------------
+   직접 고르신 기분은 대화에서 읽은 기분보다 더 믿는다. 둘이 많이 다르면
+   초롱이가 다그치지 않고 한 번 더 여쭙는다 (lib/care-score.js fuseMood). */
+
+function askMood({ say = true } = {}) {
+  showCare({
+    say,
+    question: '오늘 기분이 어떠세요?',
+    acts: careOptions().moods.map((m) => ({ label: m.label, onClick: () => chooseMood(m) })),
+  });
+}
+
+async function chooseMood(mood) {
+  hideCare();
+  stopSpeaking();
+  if (state.care) state.care.asked_mood = true;
+  await careApi('/api/care/mood', { key: mood.key });
+
+  const good = (mood.score ?? 0) > 0;
+  await careSay(
+    good
+      ? '그러시다니 저도 참 좋아요. 오늘 어떤 일이 있으셨는지 들려주시겠어요?'
+      : '그러셨군요. 오늘은 제가 더 곁에 있을게요. 무슨 일이 있으셨어요?',
+    good ? 'happy' : 'worried');
+}
+
+/* --- 아픈 곳 ---------------------------------------------------
+   1에서 10까지의 눈금은 어르신께 고르시기 어렵다. 세 마디로 여쭙고
+   점수로 바꿔 둔다. 아주 아프다고 하시면 병원을 권해 드린다. */
+
+function askPain(part) {
+  const { pain_parts: parts, pain_levels: levels } = careOptions();
+  if (!part) {
+    showCare({
+      question: '어디가 아프세요?',
+      acts: parts.map((p) => ({ label: p, onClick: () => askPain(p) })),
+    });
+    return;
+  }
+  showCare({
+    question: `${subject(part)} 얼마나 아프세요?`,
+    acts: levels.map((l) => ({ label: l.label, onClick: () => recordPain(part, l) })),
+  });
+}
+
+async function recordPain(part, level) {
+  hideCare();
+  stopSpeaking();
+  const out = await careApi('/api/care/pain', { part, level: level.key });
+  await careSay(
+    out?.see_doctor
+      ? `${subject(part)} 많이 아프시군요. 오늘 중으로 병원에 가 보시는 게 좋겠어요. 가족분께도 꼭 알려 주세요.`
+      : `${subject(part)} 아프시다니 걱정이에요. 무리하지 마시고 좀 쉬세요. 제가 적어 둘게요.`,
+    'worried');
+}
+
+/* --- 약 --------------------------------------------------------
+   등록은 보호자가 하고, 어르신은 드셨다고 누르시기만 한다.
+   조금 전에도 드신 기록이 있으면 나무라지 않고 한 번 여쭙는다. */
+
+function askMedication({ name = '' } = {}) {
+  showCare({
+    question: name ? `${name} 드셨어요?` : '오늘 약은 드셨어요?',
+    acts: [
+      { label: '먹었어요', primary: true, onClick: () => takeMedication(name) },
+      {
+        label: '아직이요',
+        onClick: async () => {
+          hideCare();
+          stopSpeaking();
+          await careSay('네, 이따 드시고 알려 주세요. 제가 다시 여쭐게요.');
+        },
+      },
+    ],
+  });
+}
+
+async function takeMedication(name) {
+  hideCare();
+  stopSpeaking();
+  const out = await careApi('/api/care/medications/taken', name ? { name } : {});
+  await careSay(
+    out?.again
+      ? '약 잘 챙기셨어요. 그런데 혹시 아까도 드시지 않았을까요? 헷갈리시면 약통을 한번 봐 주세요.'
+      : '약 잘 챙겨 드셨네요. 정말 잘하셨어요.',
+    out?.again ? 'thinking' : 'proud');
+}
+
+/* --- 오늘의 활동 -----------------------------------------------
+   회상 · 숫자 · 날짜 · 사진 네 가지 중 오늘 안 하신 것 하나.
+   날짜는 맞히게 하지 않고 먼저 알려 드린 뒤 함께 말해 본다. */
+
+async function startActivity() {
+  const out = await careApi('/api/care/activity');
+  const activity = out && out.activity;
+  if (!activity) {
+    await careSay('오늘 함께 할 활동은 다 하셨어요. 정말 잘하셨어요.', 'proud');
+    return;
+  }
+  /* 사진 활동은 기억 회상 지원으로 이어진다 — 따로 만들 까닭이 없다 */
+  if (activity.kind === 'photo') {
+    careApi('/api/care/activity', { kind: 'photo', answered: true });
+    startRecall();
+    return;
+  }
+  showCare({
+    question: activity.say,
+    note: `오늘의 활동 — ${activity.name}`,
+    acts: [
+      { label: '했어요', primary: true, onClick: () => finishActivity(activity, true) },
+      { label: '잘 모르겠어요', onClick: () => finishActivity(activity, false) },
+    ],
+  });
+}
+
+async function finishActivity(activity, answered) {
+  hideCare();
+  stopSpeaking();
+  await careApi('/api/care/activity', { kind: activity.kind, answered });
+  await careSay(
+    answered
+      ? '와, 잘하셨어요! 저랑 같이 하니까 더 좋네요.'
+      : '괜찮아요. 안 떠오르는 날도 있어요. 같이 해 주셔서 고마워요.',
+    answered ? 'proud' : 'happy');
+}
+
+/* --- 목표 ------------------------------------------------------
+   목표는 대화에서 어르신이 스스로 정하신다. 화면은 정해진 목표를 보여 드리고
+   오늘 하셨는지만 받는다 (초롱이가 대신 정하지 않는다). */
+
+function showGoalCard(goal) {
+  if (!goal || !goal.is_specific) return;
+  showCare({
+    say: false,
+    question: '오늘 이대로 해 보시고, 하시면 알려 주세요.',
+    note: goal.text,
+    acts: [
+      { label: '오늘 했어요', primary: true, onClick: markGoalDone },
+      { label: '아직이요', onClick: () => hideCare() },
+    ],
+  });
+}
+
+async function markGoalDone() {
+  hideCare();
+  stopSpeaking();
+  await careApi('/api/care/goal/achieved', {});
+  await careSay('오늘도 하셨군요! 정말 대단하세요.', 'proud');
+}
+
+/* --- 오늘 기록 · 오늘 떠올린 기억 -------------------------------- */
+
+/** 오늘 무엇을 하셨는지 한눈에 (건강관리 화면의 [오늘 기록]) */
+async function showTodayReport() {
+  const out = await careApi('/api/care/today');
+  if (out) state.care = out;
+  const r = out && out.report;
+
+  const bits = [];
+  if (r) {
+    const mood = r.mood_user || r.mood_talk;
+    bits.push(mood ? `오늘 기분 — ${mood.label}` : '오늘 기분 — 아직 안 여쭈었어요');
+    bits.push(r.medications.length ? `약 — 오늘 ${r.medications.length}번 드셨어요` : '약 — 아직 기록이 없어요');
+    bits.push(r.pains.length
+      ? `아픈 곳 — ${r.pains[r.pains.length - 1].part}`
+      : '아픈 곳 — 오늘은 말씀이 없으셨어요');
+    if (r.goal) bits.push(`정하신 것 — ${r.goal.text} (이번 주 ${r.goal.achieved_this_week}일 하셨어요)`);
+    bits.push(`오늘 나눈 이야기 — ${r.turns}번`);
+  } else {
+    bits.push('아직 오늘 기록이 없어요.');
+  }
+
+  showCare({
+    say: false,
+    question: `오늘 기록 (${(out && out.date_words) || '오늘'})`,
+    note: bits.join('\n'),
+    acts: [{ label: '닫기', primary: true, onClick: () => hideCare() }],
+  });
+}
+
+/**
+ * 오늘 떠올린 기억 — 회상 대화를 마칠 때 정해진 꼴로 보여 드린다 (회의 피드백).
+ * 잘했다 못했다 평가하지 않고, 실제로 하신 말씀만 담는다. 저장은 직접 정하신다.
+ */
+function showSummary(summary) {
+  const text = (summary.lines || []).join('\n');
+  if (!text) return;
+  addMessage('bot', `${summary.title}\n${text}`);
+  showCare({
+    say: false,
+    question: summary.title,
+    note: `${text}\n\n${summary.ask}`,
+    acts: [
+      { label: '추억 저장하기', primary: true, onClick: () => keepSummary(true) },
+      { label: '저장하지 않기', onClick: () => keepSummary(false) },
+    ],
+  });
+}
+
+async function keepSummary(keep) {
+  hideCare();
+  if (state.pending && state.pending.length) await decideKeep(keep);
+  else toast(keep ? '오늘 이야기를 남겨 두었어요' : '남기지 않았어요');
+  if (keep) {
+    careApi('/api/care/summary', {
+      topics: state.memory ? [state.memory.title || '사진 이야기'] : [],
+    });
+  }
+}
+
+/* --- 언제 띄울까 ------------------------------------------------ */
+
+/** 초롱이가 대답한 뒤 — 아프다고 하셨으면 아픈 곳을, 목표를 정하셨으면 목표를 */
+function afterCare(data) {
+  if (state.memory) return;      // 사진 이야기 중에는 끼어들지 않는다
+  const ask = data.careAsk;
+  if (ask && ask.kind === 'pain') { askPain(ask.part || null); return; }
+  if (ask && ask.kind === 'medication') { askMedication(); return; }
+  if (data.goal) showGoalCard(data.goal);
+}
+
+/** 첫 화면에서 한 번 — 오늘 돌봄 상황을 받아 둔다 */
+async function loadCare() {
+  const out = await careApi('/api/care/today');
+  if (out) state.care = out;
+  return out;
+}
+
+/**
+ * 인사를 마친 뒤 오늘 한 가지만 여쭙는다.
+ * 약 드실 때가 지났으면 약을, 아니면 오늘 기분을. 둘 다 아니면 아무것도 하지 않는다.
+ */
+function openDailyCard() {
+  if (!state.care || state.memory) return;
+  const due = (state.care.report && state.care.report.due) || [];
+  if (due.length) { askMedication({ name: due[0].name }); return; }
+  if (!state.care.asked_mood) askMood({ say: false });
+}
+
+/* ==================================================================
+ *  옆 서랍 — 지난 이야기를 골라 다시 연다
+ *
+ *  들어오면 늘 새 대화다. 서랍을 열면 지난 대화가 최근 것부터 나오고,
+ *  고르시면 그때 나눈 이야기가 화면에 그대로 다시 그려진다.
+ *  회상치료와 건강관리는 서랍을 따로 쓴다 (섞이면 어느 이야기인지 알 수 없다).
+ * ================================================================== */
+
+async function threadApi(url, { method = 'GET', body = null } = {}) {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;   // 서랍을 못 써도 대화는 이어져야 한다
+  }
+}
+
+function showDrawer(open) {
+  document.body.classList.toggle('drawer-open', open);
+  if (open) loadThreads();
+}
+
+/**
+ * 한 차례를 서랍에 남긴다.
+ *
+ * 서랍 자리는 첫마디가 오갈 때 만든다. 화면에 들어오기만 하고 이야기하지 않으신
+ * 빈 대화가 목록에 쌓이면, 정작 찾으시려는 지난 이야기가 묻힌다.
+ */
+async function noteThread(role, content) {
+  if (!content) return;
+  if (!state.threadId) {
+    const made = await threadApi('/api/threads', {
+      method: 'POST', body: { mode: state.bot, character: state.character },
+    });
+    state.threadId = (made && made.thread && made.thread.thread_id) || null;
+    if (!state.threadId) return;   // 서랍을 못 써도 대화는 이어진다
+
+    /* 자리를 막 만들었으면 지금까지 오간 말을 한꺼번에 담는다 (첫인사도 이때 들어간다) */
+    const soFar = state.history.map((m) => ({ role: m.role, content: m.content }));
+    if (soFar.length) {
+      threadApi(`/api/threads/${state.threadId}/turns`, { method: 'POST', body: { messages: soFar } });
+      return;
+    }
+  }
+  threadApi(`/api/threads/${state.threadId}/turns`, { method: 'POST', body: { role, content } });
+}
+
+/** 지금 화면을 비우고 새 대화를 연다 */
+async function newThread({ greet = true } = {}) {
+  /* 서랍 자리는 첫마디가 오갈 때 만든다 (noteThread). 여기서는 자리를 비우기만 한다 */
+  state.threadId = null;
+
+  stopSpeaking();
+  hideCare();
+  hideCog();
+  hideKeep();
+  if (state.memory) {
+    showMemory(null);
+    if (ui.memoryPhoto) ui.memoryPhoto.removeAttribute('src');
+  }
+  state.history = [];
+  state.sessionStart = 0;
+  state.waited = false;
+  state.seenMemories = [];
+  saveHistory();
+  ui.log.innerHTML = '';
+  showDrawer(false);
+
+  if (greet) {
+    const line = greetingFor(state.character);
+    ui.subtitle.textContent = line;
+    addMessage('bot', line);
+    state.history.push({ role: 'assistant', content: line });
+    state.lastReply = { text: line, emotion: 'happy', mode: 'talk' };
+    saveHistory();
+    /* 첫인사는 아직 서랍에 남기지 않는다. 들어오기만 하고 이야기하지 않으신 날까지
+       목록에 쌓이면 지난 이야기를 찾기 어렵다. 첫마디를 주고받을 때 함께 담긴다 */
+    avatar.setEmotion('happy');
+    avatar.playGesture('nod');
+    speak(line, 'excited', 'talk');
+  }
+}
+
+/** 서랍 목록을 그린다 */
+async function loadThreads() {
+  if (!ui.drawerList) return;
+  const out = await threadApi(`/api/threads?mode=${state.bot}`);
+  const list = (out && out.threads) || [];
+  ui.drawerList.innerHTML = '';
+
+  if (list.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'drawer-empty';
+    empty.textContent = '아직 지난 이야기가 없어요.';
+    ui.drawerList.appendChild(empty);
+    return;
+  }
+
+  for (const t of list) {
+    const row = document.createElement('div');
+    row.className = 'drawer-row';
+
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'drawer-item' + (t.thread_id === state.threadId ? ' on' : '');
+    const name = document.createElement('span');
+    name.textContent = t.title || '새 대화';
+    const when = document.createElement('span');
+    when.className = 'drawer-when';
+    when.textContent = whenWords(t.updated_at);
+    open.append(name, when);
+    open.addEventListener('click', () => openThread(t.thread_id));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'drawer-del';
+    del.textContent = '지우기';
+    del.setAttribute('aria-label', `${t.title || '대화'} 지우기`);
+    del.addEventListener('click', () => removeThread(t.thread_id));
+
+    row.append(open, del);
+    ui.drawerList.appendChild(row);
+  }
+}
+
+/** 언제 나눈 이야기인지 짧게 */
+function whenWords(at) {
+  const t = Date.parse(at);
+  if (!t) return '';
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0) return '오늘';
+  if (days === 1) return '어제';
+  if (days < 7) return `${days}일 전`;
+  const d = new Date(t);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+
+/** 지난 대화를 화면에 그대로 다시 그린다 */
+async function openThread(id) {
+  const out = await threadApi(`/api/threads/${id}`);
+  const thread = out && out.thread;
+  if (!thread) { toast('그 대화를 불러오지 못했어요.'); return; }
+
+  stopSpeaking();
+  hideCare();
+  hideCog();
+  hideKeep();
+  if (state.memory) {
+    showMemory(null);
+    if (ui.memoryPhoto) ui.memoryPhoto.removeAttribute('src');
+  }
+
+  state.threadId = thread.thread_id;
+  state.history = (thread.messages || []).map((m) => ({ role: m.role, content: m.content }));
+  state.sessionStart = 0;
+  state.seenMemories = [];
+  saveHistory();
+
+  ui.log.innerHTML = '';
+  for (const m of state.history) addMessage(m.role === 'user' ? 'me' : 'bot', m.content);
+  addMessage('sys', '지난 이야기를 이어서 나눌 수 있어요');
+
+  const last = [...state.history].reverse().find((m) => m.role === 'assistant');
+  if (last) {
+    ui.subtitle.textContent = last.content;
+    state.lastReply = { text: last.content, emotion: 'happy', mode: 'talk' };
+  }
+  if (thread.character && CHARACTERS[thread.character]) applyCharacter(thread.character);
+  showDrawer(false);
+}
+
+async function removeThread(id) {
+  await threadApi(`/api/threads/${id}`, { method: 'DELETE' });
+  if (id === state.threadId) await newThread({ greet: false });
+  loadThreads();
+}
+
+/* ==================================================================
+ *  인지치료 — 오늘의 활동 한 가지
+ *
+ *  두 챗봇 어디서나 [인지치료] 를 누르면 열린다. 회상 · 숫자 · 날짜 · 사진
+ *  네 가지 가운데 오늘 아직 안 하신 것을 하나만 드린다. 다 하셨으면 더 시키지 않는다.
+ * ================================================================== */
+
+function hideCog() { if (ui.cog) ui.cog.hidden = true; }
+
+async function openCognitive() {
+  if (!ui.cog) return;
+  hideCare();
+  const out = await careApi('/api/care/activity');
+  const activity = out && out.activity;
+
+  ui.cogActs.innerHTML = '';
+  const add = (label, primary, fn) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'care-btn' + (primary ? ' care-primary' : '');
+    btn.textContent = label;
+    btn.addEventListener('click', fn);
+    ui.cogActs.appendChild(btn);
+  };
+
+  if (!activity) {
+    ui.cogSay.textContent = '오늘 함께 할 활동은 다 하셨어요. 정말 잘하셨어요.';
+    add('대화로 돌아가기', true, hideCog);
+    ui.cog.hidden = false;
+    return;
+  }
+
+  ui.cogSay.textContent = activity.say;
+  if (activity.kind === 'photo') {
+    /* 사진 활동은 회상치료 화면이 훨씬 잘한다. 그리로 모신다 */
+    add('사진 보러 가기', true, () => {
+      careApi('/api/care/activity', { kind: 'photo', answered: true });
+      if (BOT === 'recall') { hideCog(); startRecall(); }
+      else window.location.href = '/recall.html';
+    });
+  } else {
+    add('했어요', true, () => finishActivity(activity, true));
+    add('잘 모르겠어요', false, () => finishActivity(activity, false));
+  }
+  add('다른 활동', false, () => openCognitive());
+
+  ui.cog.hidden = false;
+  stopSpeaking();
+  speak(activity.say, 'happy', 'talk');
+}
 
 /* ==================================================================
  *  말동무 고르기
@@ -1482,42 +2090,40 @@ function init() {
   window.speechSynthesis?.getVoices();
 
   bindControls();
-  loadHistory();
   checkApiKey();
+  /* 오늘 돌봄은 건강관리 화면에서만 쓴다 (회상 화면은 사진 이야기에 집중한다) */
+  if (BOT === 'health') loadCare();
   buildPicker();
 
-  ui.swap.addEventListener('click', openChooser);
-  ui.cancel.addEventListener('click', closeChooser);
+  on(ui.swap, 'click', openChooser);
+  on(ui.cancel, 'click', closeChooser);
 
-  ui.start.addEventListener('click', async () => {
-    const changing = !ui.cancel.hidden;      // 대화 중에 친구를 바꾸는 경우
+  /* 말동무 고르는 화면은 [친구 바꾸기] 를 누르실 때만 열린다.
+     처음 들어오실 때는 고르시게 하지 않는다 — 바로 이야기를 시작한다. */
+  on(ui.start, 'click', async () => {
     const switched = pending !== state.character;
-
     applyCharacter(pending);
     closeChooser();
     ensureAudio();
+    if (!switched) return;                   // 같은 친구면 인사를 다시 하지 않는다
 
-    if (changing && !switched) return;       // 같은 친구면 인사를 다시 하지 않는다
-
-    const def = CHARACTERS[state.character];
-    const text = changing
-      ? `안녕하세요, 어르신! 이제부터 제가 말동무가 되어 드릴게요. 저는 ${def.name}입니다.`
-      : (state.history.length === 0
-          ? greetingFor(state.character)
-          : '어르신, 다시 뵈어서 정말 반가워요! 그동안 잘 지내셨어요?');
-
+    const text = `안녕하세요. 이제부터 제가 말동무가 되어 드릴게요. 저는 ${CHARACTERS[state.character].name}입니다.`;
     ui.subtitle.textContent = text;
     addMessage('bot', text);
     state.history.push({ role: 'assistant', content: text });
     state.lastReply = { text, emotion: 'excited', mode: 'talk' };
     saveHistory();
+    noteThread('assistant', text);
 
-    /* 첫 인사 — 만세 · 신남 표정은 몸이 들썩여 떨리는 것처럼 보인다. 웃으며 끄덕이기만 한다.
-       목소리는 반가운 말투 그대로 둔다. */
+    /* 만세 · 신남 표정은 몸이 들썩여 떨리는 것처럼 보인다. 웃으며 끄덕이기만 한다 */
     avatar.setEmotion('happy');
     avatar.playGesture('nod');
     await speak(text, 'excited');
   });
+
+  /* 들어오면 늘 새 대화다 (옆 서랍에서 고르시면 그때 이야기가 이어진다).
+     인사를 마친 뒤, 건강관리 화면에서는 오늘 한 가지만 여쭙는다. */
+  newThread().then(() => { if (BOT === 'health') openDailyCard(); });
 }
 
 init();

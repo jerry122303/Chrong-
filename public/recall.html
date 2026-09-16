@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#F5F4F0" />
+  <title>사진 보며 옛이야기 — 초롱이</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦜</text></svg>" />
+</head>
+<body class="fs-2" data-bot="recall">
+
+  <!-- ================= 지난 대화 서랍 ================= -->
+  <!-- 들어오면 늘 새 대화다. 서랍에서 고르시면 그때 이야기가 이어진다 -->
+  <div id="scrim" class="scrim"></div>
+  <aside id="drawer" class="drawer" aria-label="지난 대화">
+    <div class="drawer-head">
+      <span class="drawer-title">지난 이야기</span>
+      <button id="btn-drawer-close" class="drawer-del" type="button" aria-label="서랍 닫기">닫기</button>
+    </div>
+    <button id="btn-new" class="btn-new" type="button">새 대화 시작하기</button>
+    <div id="drawer-list" class="drawer-list" role="list"></div>
+  </aside>
+
+  <!-- ================= 시작 화면 ================= -->
+  <!-- 말동무는 첫 화면에서 고르지 않는다. [친구 바꾸기] 를 누르시면 이 화면이 열린다 -->
+  <div id="splash" class="splash" hidden>
+    <div class="splash-inner">
+      <h1 class="splash-title">말동무를 <b>골라 주세요</b></h1>
+      <p class="splash-desc">마음에 드는 친구를 누르시면 이야기를 이어갑니다.</p>
+
+      <div class="picker" id="picker" role="radiogroup" aria-label="말동무 고르기"></div>
+
+      <button id="btn-start" class="btn-start">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke="none"/></svg>
+        <span id="start-label">이야기 시작하기</span>
+      </button>
+      <button id="btn-cancel" class="btn-cancel" type="button" hidden>그대로 두기</button>
+      <p class="splash-hint">소리가 나오니 볼륨을 켜 주세요</p>
+    </div>
+  </div>
+
+  <!-- ================= 상단 ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32">
+          <path d="M6 7.5h20a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H14l-6 5v-5H6a3 3 0 0 1-3-3v-10a3 3 0 0 1 3-3z"
+                fill="currentColor" stroke="none"/>
+          <path d="M16 12.4c1.9 0 3.4 1.2 3.4 2.9 0 2.1-1.8 4-3.4 4.7-1.6-.7-3.4-2.6-3.4-4.7 0-1.7 1.5-2.9 3.4-2.9z"
+                fill="#FFFFFF" stroke="none"/>
+        </svg>
+      </span>
+      <span class="brand-name">초롱이</span>
+    </div>
+
+    <nav class="controls" aria-label="설정">
+      <button id="btn-drawer" class="ctrl" type="button">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/>
+        </svg>
+        <span class="ctrl-label">지난 이야기</span>
+      </button>
+
+      <button id="btn-cognitive" class="ctrl" type="button">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 6.5c-1.6-2-5.5-1.6-5.5 1.6 0 2.2 2.2 3 2.2 5.4"/>
+          <path d="M12 6.5c1.6-2 5.5-1.6 5.5 1.6 0 2.2-2.2 3-2.2 5.4"/><path d="M9.5 17.5h5"/>
+        </svg>
+        <span class="ctrl-label">인지치료</span>
+      </button>
+
+      <button id="btn-home" class="ctrl" type="button">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 10.5V19h11v-8.5"/>
+        </svg>
+        <span class="ctrl-label">처음으로</span>
+      </button>
+
+      <button id="btn-font" class="ctrl" type="button">
+        <span class="ctrl-icon ctrl-icon-text" aria-hidden="true">가</span>
+        <span class="ctrl-label">글자 크기<b id="font-level">크게</b></span>
+      </button>
+
+      <button id="btn-slow" class="ctrl" type="button" aria-pressed="false">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5"/><path d="M12 7.2v5l3.2 2"/>
+        </svg>
+        <span class="ctrl-label">천천히<b id="slow-state">꺼짐</b></span>
+      </button>
+
+      <button id="btn-sound" class="ctrl" type="button" aria-pressed="true">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M16 9.6a4 4 0 0 1 0 4.8"/><path d="M18.7 7a8 8 0 0 1 0 10"/>
+        </svg>
+        <span class="ctrl-label">소리<b id="sound-state">켜짐</b></span>
+      </button>
+
+
+      <button id="btn-swap" class="ctrl" type="button">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 8.5h13l-3-3"/><path d="M20 15.5H7l3 3"/>
+        </svg>
+        <span class="ctrl-label">친구 바꾸기</span>
+      </button>
+
+      <button id="btn-clear" class="ctrl" type="button">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 6.5h16"/><path d="M9.5 6.5v-2h5v2"/><path d="M6.5 6.5l1 13h9l1-13"/>
+        </svg>
+        <span class="ctrl-label">대화 지우기</span>
+      </button>
+    </nav>
+  </header>
+
+  <!-- ================= 본문 ================= -->
+  <main class="main">
+
+    <!-- 아바타 무대 -->
+    <section class="stage" aria-label="말동무 화면">
+      <div class="stage-glow" aria-hidden="true"></div>
+
+      <!-- 회상 대화 : 사진 한 장만 크게 보여 준다 (문서 3번) -->
+      <figure id="memory" class="memory" hidden>
+        <img id="memory-photo" class="memory-photo" alt="">
+        <figcaption id="memory-title" class="memory-title"></figcaption>
+        <div class="memory-acts">
+          <button id="btn-next-photo" class="memory-btn" type="button">다른 사진</button>
+          <button id="btn-close-photo" class="memory-btn" type="button">그만 보기</button>
+        </div>
+      </figure>
+
+      <!-- 새로 들은 이야기를 기억으로 남길지 여쭙는다 (문서 9번) -->
+      <div id="keep" class="keep" hidden role="group" aria-labelledby="keep-q">
+        <p id="keep-q" class="keep-q">오늘 이런 이야기를 해 주셨어요. 이 사진의 기억으로 남겨 둘까요?</p>
+        <ul id="keep-list" class="keep-list"></ul>
+        <div class="keep-acts">
+          <button id="btn-keep-yes" class="keep-btn keep-yes" type="button">네, 남겨 주세요</button>
+          <button id="btn-keep-no" class="keep-btn" type="button">아니요</button>
+        </div>
+      </div>
+
+      <!-- 사진을 올리시면 얼마나 소중한 사진인지 여쭙는다. 추천 점수의 한 항목이다 -->
+      <div id="rate" class="rate" hidden role="group" aria-labelledby="rate-q">
+        <p id="rate-q" class="rate-q">이 사진은 나에게 얼마나 중요한 사진인가요?</p>
+        <p id="rate-meta" class="rate-meta" hidden></p>
+        <div class="rate-acts">
+          <button class="rate-btn" type="button" data-importance="1" aria-label="별 하나, 평범한 사진">
+            <span class="rate-stars" aria-hidden="true">★</span>평범한 사진</button>
+          <button class="rate-btn" type="button" data-importance="2" aria-label="별 둘, 소중한 사진">
+            <span class="rate-stars" aria-hidden="true">★★</span>소중한 사진</button>
+          <button class="rate-btn" type="button" data-importance="3" aria-label="별 셋, 매우 소중한 사진">
+            <span class="rate-stars" aria-hidden="true">★★★</span>매우 소중한 사진</button>
+          <button class="rate-btn rate-avoid" type="button" data-avoid="1">이 사진으로 이야기하고 싶지 않아요</button>
+        </div>
+      </div>
+
+      <!-- 건강 돌봄 — 오늘 기분 · 아픈 곳 · 약 · 오늘의 활동 · 목표.
+           한 번에 하나만 여쭙는다. 무엇을 여쭐지는 app.js 가 채운다 -->
+      <div id="care" class="care" hidden role="group" aria-labelledby="care-q">
+        <p id="care-q" class="care-q"></p>
+        <p id="care-note" class="care-note" hidden></p>
+        <div id="care-acts" class="care-acts"></div>
+        <button id="care-later" class="care-later" type="button">나중에 할게요</button>
+      </div>
+
+      <!-- 인지치료 — 회상 · 숫자 · 날짜 · 사진 네 가지 중 오늘 안 하신 것 하나씩 -->
+      <div id="cog" class="cog" hidden role="group" aria-labelledby="cog-title">
+        <p id="cog-title" class="cog-title">오늘의 인지 활동</p>
+        <p id="cog-say" class="cog-say"></p>
+        <div id="cog-acts" class="cog-acts"></div>
+        <button id="cog-close" class="care-later" type="button">대화로 돌아가기</button>
+      </div>
+
+      <div id="avatar" class="avatar"></div>
+
+      <div class="stage-bar">
+        <div id="status" class="status status-idle">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="status-text">말씀해 주세요</span>
+        </div>
+
+        <button id="btn-replay" class="btn-replay" type="button" hidden>
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20.5 4v4.5H16"/>
+          </svg>
+          다시 듣기
+        </button>
+      </div>
+
+      <div id="subtitle" class="subtitle" role="status" aria-live="polite">
+        안녕하세요, 어르신. 오늘 하루는 어떠셨어요?
+      </div>
+    </section>
+
+    <!-- 대화 기록 -->
+    <section class="chat" aria-label="대화 내용">
+      <h2 class="chat-title">주고받은 이야기</h2>
+      <div id="log" class="log" role="log" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <!-- ================= 하단 입력 ================= -->
+  <footer class="composer">
+    <div class="suggest" id="suggest" aria-label="자주 쓰는 것">
+      <!-- 기억 회상 지원 — 올리신 사진 중 점수가 가장 높은 사진을 띄우고
+           "이 사진을 보면 어떤 기억이 떠오르세요?" 로 연다. 회상 중에는 '회상 마치기' 가 된다 -->
+      <button id="btn-recall" class="btn-recall" type="button" aria-pressed="false">
+        <svg class="recall-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="5.5" width="18" height="14" rx="2.5"/>
+          <circle cx="8.6" cy="10.4" r="1.7"/>
+          <path d="M3.5 17.5l5-4.6 4.2 3.8 3-2.6 4.8 4"/>
+        </svg>
+        <span id="recall-label">기억 회상 지원</span>
+      </button>
+      <!-- 기분 · 약 같은 돌봄 버튼은 건강관리 화면에 있다. 여기는 사진 이야기에만 쓴다 -->
+      <button class="chip" type="button" data-say="안녕하세요, 초롱아!">안녕하세요</button>
+      <button class="chip" type="button" data-say="옛날 이야기 하나 해 주세요.">옛날 이야기</button>
+      <button class="chip" type="button" data-say="요즘 몸이 조금 안 좋아요.">몸이 안 좋아요</button>
+    </div>
+
+    <div class="input-row">
+      <button id="btn-mic" class="mic" type="button" aria-label="말하기 버튼">
+        <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/>
+        </svg>
+        <span class="mic-label" id="mic-label">눌러서 말하기</span>
+        <span class="mic-level" id="mic-level" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      </button>
+
+      <div class="type-box">
+        <!-- 사진 올리기 — 올리시면 얼마나 소중한 사진인지 고르고 등록합니다. 이야기는 [기억 회상 지원] 에서 -->
+        <button id="btn-attach" class="btn-attach" type="button"
+                aria-label="사진 올리기" title="사진을 올려 등록해요">
+          <svg class="attach-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5.5v13"/><path d="M5.5 12h13"/>
+          </svg>
+          <span class="attach-label">사진</span>
+        </button>
+        <input id="file-photo" class="sr-only" type="file"
+               accept="image/jpeg,image/png,image/gif,image/webp" />
+
+        <label class="sr-only" for="input">하고 싶은 말</label>
+        <input id="input" class="input" type="text" autocomplete="off"
+               placeholder="글로 쓰셔도 됩니다" enterkeyhint="send" />
+        <button id="btn-send" class="btn-send" type="button">보내기</button>
+      </div>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="alert" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

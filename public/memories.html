@@ -262,6 +262,52 @@
     <div class="log" id="log"></div>
   </div>
 
+  <!-- 건강관리 이야기에서 남은 기록 (lib/care-store.js) -->
+  <style>
+    .care-h { font-size: calc(var(--base) * .9); margin: 18px 0 8px; }
+    .care-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: calc(var(--base) * .84); }
+    .care-facts li { display: flex; gap: 8px; }
+    .care-facts b { min-width: 6.5em; color: var(--ink-2); font-weight: 600; }
+    .trend { display: flex; align-items: flex-end; gap: 3px; height: 72px; }
+    .trend i {
+      flex: 1 1 0; background: var(--brand-soft); border: 1px solid var(--brand-line);
+      border-radius: 3px 3px 0 0; min-height: 3px;
+    }
+    .trend i.up { background: var(--brand); border-color: var(--brand); }
+    .trend i.down { background: #E8C5C2; border-color: #D8A9A5; }
+    .trend i.none { background: var(--line); border-color: var(--line); opacity: .6; }
+    .med { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+    .med b { font-weight: 700; }
+    .med span { color: var(--ink-2); font-size: calc(var(--base) * .78); margin-right: auto; }
+  </style>
+  <div class="card">
+    <h2>오늘 돌봄 기록 <span id="careDate" class="hint"></span></h2>
+    <p class="hint" style="margin:-8px 0 14px">
+      건강관리 이야기에서 남은 기록입니다. 숫자로 평가하려는 것이 아니라,
+      무엇을 함께 살펴야 할지 알아보기 위한 것입니다.
+    </p>
+    <ul class="care-facts" id="careToday"><li>불러오는 중…</li></ul>
+
+    <h3 class="care-h">최근 열나흘 기분</h3>
+    <div class="trend" id="trend"></div>
+
+    <h3 class="care-h">살펴야 할 신호</h3>
+    <div id="signals" class="hint">아직 살펴볼 신호가 없어요.</div>
+
+    <h3 class="care-h">약 알림</h3>
+    <p class="hint" style="margin:-6px 0 10px">
+      등록해 두면 드실 때가 지났는데 기록이 없을 때, 초롱이가 대화 중에 한 번만 가볍게 여쭙습니다.
+      알림을 따로 울리지는 않습니다.
+    </p>
+    <div class="row">
+      <input type="text" id="medName" maxlength="40" placeholder="약 이름 (예: 혈압약)" style="flex:2 1 11em">
+      <input type="text" id="medTimes" maxlength="40" placeholder="드시는 때 (예: 08:00, 20:00)" style="flex:2 1 12em">
+      <button class="btn-sm" type="button" id="medAdd">등록</button>
+    </div>
+    <div class="list" id="meds" style="margin-top:10px; grid-template-columns: 1fr;"></div>
+    <div class="msg" id="careMsg"></div>
+  </div>
+
   <div class="card">
     <h2>추천 순서 <span id="count" class="hint"></span></h2>
     <details class="how">
@@ -653,10 +699,98 @@ async function loadLog() {
   }).join('');
 }
 
+/* ---- 오늘 돌봄 기록 (건강관리 이야기에서 남은 것) ----------------
+   숫자로 평가하려는 것이 아니다. 무엇을 함께 살펴야 할지 알아보기 위한 것이다. */
+
+const careLine = (label, value) =>
+  '<li><b>' + esc(label) + '</b><span>' + esc(value) + '</span></li>';
+
+async function loadCare() {
+  let out;
+  try {
+    out = await api('/api/care/report' + Q);
+  } catch {
+    $('careToday').innerHTML = '<li>기록을 불러오지 못했어요.</li>';
+    return;
+  }
+
+  const r = out.report || {};
+  $('careDate').textContent = r.date || '';
+
+  const mood = r.mood_user || r.mood_talk;
+  const goal = r.goal;
+  $('careToday').innerHTML = [
+    careLine('기분', mood ? mood.label : '아직 안 여쭈었어요'),
+    careLine('약', (r.medications || []).length ? r.medications.length + '번 드셨어요' : '오늘 기록이 없어요'),
+    careLine('아픈 곳', (r.pains || []).length
+      ? r.pains.map((p) => p.part).join(', ') + (r.see_doctor ? ' (많이 아프다고 하셨어요)' : '')
+      : '오늘은 말씀이 없으셨어요'),
+    careLine('정하신 것', goal
+      ? goal.text + ' · 이번 주 ' + goal.achieved_this_week + '일 하셨어요'
+      : '아직 없어요'),
+    careLine('오늘의 활동', (r.activities || []).length + '가지 하셨어요'),
+    careLine('나눈 이야기', (r.turns || 0) + '마디'),
+  ].join('');
+
+  /* 기분 추이 — 막대 하나가 하루다. 기록이 없는 날은 흐리게 둔다 */
+  $('trend').innerHTML = (out.trend || []).map((d) => {
+    if (typeof d.score !== 'number') {
+      return '<i class="none" style="height:6px" title="' + d.date + ' 기록 없음"></i>';
+    }
+    const h = Math.round(12 + ((d.score + 1) / 2) * 56);
+    const kind = d.score > 0 ? 'up' : (d.score < 0 ? 'down' : '');
+    return '<i class="' + kind + '" style="height:' + h + 'px" title="' + d.date + '"></i>';
+  }).join('');
+
+  const signals = (r.burnout && r.burnout.signals) || [];
+  $('signals').innerHTML = signals.length
+    ? signals.map((s) => '<div>· ' + esc(s) + '</div>').join('')
+    : '아직 살펴볼 신호가 없어요.';
+
+  const meds = out.medications || [];
+  $('meds').innerHTML = meds.length
+    ? meds.map((m) => '<div class="item med"><b>' + esc(m.name) + '</b>'
+      + '<span>' + esc(m.times.join(', ') || '드시는 때를 안 정했어요') + '</span>'
+      + '<button class="btn-sm" type="button" data-med="' + esc(m.med_id) + '">지우기</button></div>').join('')
+    : '<div class="hint">등록한 약이 없어요.</div>';
+}
+
+$('medAdd').addEventListener('click', async () => {
+  const name = $('medName').value.trim();
+  const times = $('medTimes').value.split(/[,·\s]+/).filter(Boolean);
+  const msg = $('careMsg');
+  if (!name) {
+    msg.className = 'msg bad';
+    msg.textContent = '약 이름을 적어 주세요.';
+    return;
+  }
+  try {
+    await api('/api/care/medications' + Q, { method: 'POST', body: JSON.stringify({ name, times }) });
+    $('medName').value = '';
+    $('medTimes').value = '';
+    msg.className = 'msg ok';
+    msg.textContent = name + ' 등록했어요.';
+    loadCare();
+  } catch (err) {
+    msg.className = 'msg bad';
+    msg.textContent = err.message;
+  }
+});
+
+$('meds').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-med]');
+  if (!btn) return;
+  try {
+    await api('/api/care/medications/' + encodeURIComponent(btn.dataset.med) + Q, { method: 'DELETE' });
+  } catch { /* 이미 지워졌을 수 있다 */ }
+  loadCare();
+});
+
 loadProfile();
 loadRank();
 loadThemes();
 loadLog();
+loadCare();
 </script>
 </body>
 </html>
