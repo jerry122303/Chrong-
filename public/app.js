@@ -1691,7 +1691,7 @@ function showSummary(summary) {
   showCare({
     say: false,
     question: summary.title,
-    note: `${text}\n\n${summary.ask}`,
+    note: `${text}\n\n${summary.ask}\n${summary.note}`,
     acts: [
       { label: '추억 저장하기', primary: true, onClick: () => keepSummary(true) },
       { label: '저장하지 않기', onClick: () => keepSummary(false) },

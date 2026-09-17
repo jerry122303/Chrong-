@@ -1192,6 +1192,14 @@ body.drawer-open .drawer { transform: none; box-shadow: 0 0 40px rgba(30, 40, 35
   gap: 8px;
 }
 
+/* 남기면 무엇이 좋은지 — 그냥 여쭈면 대개 그냥 넘기신다 */
+.keep-why {
+  margin: -2px 0 0;
+  font-size: calc(var(--base) * .72);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
 /* 서랍을 여는 단추와 뒤 가림막 */
 .scrim {
   position: fixed; inset: 0; z-index: 50;

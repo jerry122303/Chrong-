@@ -412,7 +412,7 @@ ${memoryContext}${turnRules}`;
  * ------------------------------------------------------------------ */
 
 /* 기억이 잘 안 나신다고 하시는 말씀 — 회상치료 챗봇이 단서 사다리로 갈아타는 자리 */
-const CANNOT_RECALL = /기억(이|은|도)? ?안 ?나|생각(이|은|도)? ?안 ?나|모르겠|몰라|가물가물|글쎄/;
+const CANNOT_RECALL = /기억(이|은|도)? ?안 ?나|생각(이|은|도)? ?안 ?나|모르겠|몰라|가물가물|글쎄|안 ?떠올|떠오르지 ?않|기억나지 ?않|생각나지 ?않/;
 
 /** 한 주제로 볼 최근 아바타 발화 수 */
 const TOPIC_WINDOW = 6;
@@ -441,7 +441,7 @@ function questionBudget(history) {
  * 확인된 항목만 넘긴다. 보호자나 어르신이 확인해 주지 않은 값은
  * 아무리 그럴듯해도 넣지 않는다. 넣는 순간 모델이 그것을 사실로 말한다.
  */
-function buildMemoryContext(memory, facts, canSee = false, history = []) {
+function buildMemoryContext(memory, facts, canSee = false, history = [], { withCue = true } = {}) {
   if (!memory) return '';
   const hasFacts = facts && Object.keys(facts).length > 0;
 
@@ -473,9 +473,14 @@ function buildMemoryContext(memory, facts, canSee = false, history = []) {
   /* 적어 둔 내용을 다 보여 주면, 기억이 안 난다는 말에 모델이 전부 늘어놓는다.
      그래서 이번에 건넬 단서 한 가지만 보여 준다. 이미 대화에 나온 것은 건너뛴다.
      어르신이 적어 둔 것과 다르게 말씀하셔도, 모델이 모르는 것은 바로잡을 수도 없다. */
-  const cued = justGaveCue(facts, history);
-  const cue = cued ? null : pickCue(memory, facts, history);
-  if (cued) {
+  const cued = withCue && justGaveCue(facts, history);
+  const cue = withCue && !cued ? pickCue(memory, facts, history) : null;
+  if (!withCue) {
+    /* 회상 챗봇 — 단서는 아래 [이번 차례에 할 일] 이 정한 것만 쓴다.
+       여기서도 건네면 찍은 날보다 먼저 나가 사다리가 뒤엉킨다 (실제 대화에서 그랬다). */
+    lines.push('- 적어 둔 내용을 여기서 먼저 꺼내지 마십시오.');
+    lines.push('  단서는 아래 [이번 차례에 할 일] 이 정한 한 가지만, 적힌 문장 그대로 건넵니다.');
+  } else if (cued) {
     lines.push('- 방금 단서를 하나 건넸습니다. 이번에는 단서를 더 건네지 않습니다.');
     lines.push('  그래도 기억이 안 난다고 하시면 다른 사진을 볼지 쉴지 여쭙습니다.');
   } else if (cue) {
@@ -751,11 +756,18 @@ app.post('/api/chat', async (req, res) => {
   /* 사진 이야기를 나누는 중이면 확인된 사실을 서버가 직접 찾아 넣는다.
      화면이 보내 주는 값을 그대로 쓰면, 확인되지 않은 내용을 사실인 양
      프롬프트에 밀어 넣을 수 있다. 그래서 아이디만 받는다. */
+  /* 어느 챗봇에서 온 말씀인가. 사진을 읽기 전에 정해 두어야
+     '적어 둔 내용을 단서로 건네라' 는 지시를 넣을지 가를 수 있다. */
+  const botMode = ['recall', 'health'].includes(String(req.body?.bot))
+    ? String(req.body.bot) : (req.body?.memory_id ? 'recall' : 'health');
+  const recallBot = botMode === 'recall';
+
   let memoryContext = '';
   let photoUrl = null;        // 모델에게 함께 보여 줄 사진
   let hasPhoto = false;       // 사진이 걸려 있는가 (모델이 보는지와는 별개)
   let turnCue = null;         // 이번에 건넬 수 있는 단서 한 가지 (모델에게 보여 준 것과 같다)
   let recallMemory = null;    // 지금 함께 보는 사진 (질문지 질문을 고를 때 쓴다)
+  let recallFacts = null;     // 그 사진에 대해 확인된 사실 (단서 사다리에서 쓴다)
   if (req.body?.memory_id) {
     try {
       const memory = await memories.get(String(req.body.memory_id));
@@ -765,10 +777,15 @@ app.post('/api/chat', async (req, res) => {
         recallMemory = memory;
         if (VISION && hasPhoto) photoUrl = await photos.dataUrl(memory.photo.file);
         const facts = memories.facts(memory);
-        memoryContext = buildMemoryContext(memory, facts, Boolean(photoUrl), history);
+        recallFacts = facts;
+        /* 회상 챗봇은 단서를 사다리 한 곳에서만 건넨다 (lib/recall-flow.js) */
+        memoryContext = buildMemoryContext(memory, facts, Boolean(photoUrl), history,
+          { withCue: !recallBot });
         if (photoUrl) memoryContext += buildVisionRules();
         /* 답에 이 단서가 나오면 누가 적었는지 밝혔는지 아래에서 본다 */
-        if (memory.kind !== 'THEME' && !justGaveCue(facts, history)) turnCue = pickCue(memory, facts, history);
+        if (!recallBot && memory.kind !== 'THEME' && !justGaveCue(facts, history)) {
+          turnCue = pickCue(memory, facts, history);
+        }
       }
     } catch (err) {
       console.warn('[chat] 사진 정보를 읽지 못했습니다', err);
@@ -789,13 +806,6 @@ app.post('/api/chat', async (req, res) => {
      (문서: 종료 확인은 회상 질문 예산과 별도로 계산한다) */
   const closing = sessionSeconds >= SESSION_SECONDS;
   const recall = Boolean(req.body?.memory_id);
-  /* 어느 챗봇에서 온 말씀인가.
-     recall — 회상치료 챗봇. 팀에서 받은 시스템 프롬프트(prompts/recall-system.txt)를 그대로 쓴다.
-     health — Bloom 기반 건강관리 챗봇. 지금까지의 초롱이 규칙에 오늘 돌봄을 얹는다.
-     화면이 말해 주지 않으면 사진을 보고 있는지로 가른다 (예전 화면도 그대로 돌아간다). */
-  const botMode = ['recall', 'health'].includes(String(req.body?.bot))
-    ? String(req.body.bot) : (recall ? 'recall' : 'health');
-  const recallBot = botMode === 'recall';
   /* 스스로를 해치겠다는 말씀은 다른 무엇보다 먼저다. 모델에게 맡기지 않고 정해진 안내를 드린다.
      상담 전화번호를 모델이 지어내면 큰일이고, 이 말씀에 회상 질문이 이어져서도 안 된다.
      "머리가 멍해요", "자꾸 깜빡해요" 같은 말씀은 여기 걸리지 않는다 — 인지 저하는 위기가 아니다
@@ -867,9 +877,22 @@ app.post('/api/chat', async (req, res) => {
       lastUserText,
       analysis: recallMemory?.analysis,
       memory: recallMemory,
+      facts: recallFacts,
       cannotRecall: CANNOT_RECALL.test(lastUserText),
     })
     : null;
+
+  /* 단서를 건네는 차례는 답이 정해져 있다 — 모델을 부르지 않는다.
+     ("그만할래" 와 같다. 기다림과 값이 줄고, 모델이 단서를 바꿔 말할 여지도 없어진다) */
+  if (plan && plan.mode === 'cue' && plan.cue) {
+    return res.json({
+      reply: plan.cue.line, emotion: 'thinking', gesture: 'tilt', mode: 'talk',
+      userState: 'CANNOT_RECALL', responseMode: 'OFFER_CUE', askQuestion: true,
+      shouldClose: closing, topicDistress: false, userReportedEmotion: [], pendingClaims: [],
+      photoAction: 'none', careAsk: null, goal: null, bot: botMode,
+      recall: recallInfo(plan, plan.cue.line), summary: null,
+    });
+  }
 
   const systemPrompt = recallBot
     ? buildRecallPrompt({
@@ -877,6 +900,7 @@ app.post('/api/chat', async (req, res) => {
       memory: recallMemory,
       analysis: recallMemory?.analysis,
       memoryContext,
+      facts: recallFacts,
       history: trimmed,
       lastUserText,
       plan,
@@ -1001,6 +1025,8 @@ app.post('/api/chat', async (req, res) => {
       const plain = safeReflection(parsed.reflection, userSaid) || plainReaction(trimmed);
       const tidied = tidyRecallReply(reply, {
         history: trimmed, userSaid, turnCue, plain, mayAsk: plan.state.mayAsk,
+        /* 단서를 건네는 차례에는 사다리가 정한 문장 그대로 나간다 */
+        cue: plan.mode === 'cue' && plan.cue ? plan.cue.line : '',
       });
       if (tidied !== reply) {
         console.warn('[chat] 회상 답을 다듬었습니다.', { mode: plan.mode, area: plan.area });
