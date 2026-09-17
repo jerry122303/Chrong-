@@ -428,11 +428,19 @@ async function choose(file) {
   $('preview').hidden = false;
   $('dropText').textContent = file.name + ' — 바꾸려면 다시 누르세요';
 
+  /* 주고받은 사진이나 화면을 찍은 사진은 촬영 정보가 지워져 있다.
+     파일을 고친 때만 남은 것은 찍은 날로 여기지 않는다 */
+  const day = pickedExif.takenAt && pickedExif.dateConfidence !== 'LOW'
+    ? '찍은 날 <b>' + esc(formatTakenDate(pickedExif.takenAt)) + '</b>'
+    : (pickedExif.takenAt ? '찍은 날은 없고 파일을 고친 때만 남아 있어요' : '찍은 날 정보 없음');
   const bits = [
-    pickedExif.takenAt ? '찍은 날 <b>' + esc(formatTakenDate(pickedExif.takenAt)) + '</b>' : '찍은 날 정보 없음',
-    pickedExif.gps ? '찍은 곳 <b>위치 정보 있음</b> (동네 수준으로 줄여 서버에만 저장)' : '위치 정보 없음',
+    day,
+    pickedExif.gps ? '찍은 곳 <b>위치 정보 있음</b> (동네 이름으로 바꿔 저장해요)' : '위치 정보 없음',
   ];
-  $('auto').innerHTML = '사진 파일에서 읽은 정보 — ' + bits.join(' · ');
+  $('auto').innerHTML = '사진 파일에서 읽은 정보 — ' + bits.join(' · ')
+    + (!pickedExif.takenAt && !pickedExif.gps
+      ? '<br>이 사진에는 촬영 정보가 남아 있지 않아요. 아래에 찍은 해와 장소를 적어 두시면 회상 단서로 씁니다.'
+      : '');
   $('auto').hidden = false;
 }
 
@@ -485,7 +493,12 @@ $('form').addEventListener('submit', async (e) => {
         importance: avoid ? null : Number(chosen.value),
         avoid,
         taken_year: $('takenYear').value || null,
-        meta: picked && pickedExif ? { taken_at: pickedExif.takenAt, gps: pickedExif.gps } : null,
+        meta: picked && pickedExif ? {
+          taken_at: pickedExif.takenAt,
+          date_source: pickedExif.dateSource,
+          date_confidence: pickedExif.dateConfidence,
+          gps: pickedExif.gps,
+        } : null,
       }),
     });
 
@@ -555,8 +568,12 @@ function rankCard({ memory: m, score: s }, nextId) {
   const status = !m.photo ? '' : !a ? '아직 살펴보지 않은 사진이에요' : (STATUS_TEXT[a.status] || '');
   const canRetry = m.photo && (!a || a.status === 'FAILED');
   const fileInfo = [
-    m.meta?.taken_at ? '파일 날짜 ' + esc(formatTakenDate(m.meta.taken_at)) : '',
-    m.meta?.has_gps ? '위치 정보 있음' : '',
+    m.meta?.taken_at
+      ? (m.meta.date_confidence === 'LOW' ? '파일 고친 날 ' : '찍은 날 ') + esc(formatTakenDate(m.meta.taken_at))
+      : '',
+    m.meta?.location_name
+      ? '찍은 곳 ' + esc(m.meta.location_name)
+      : (m.meta?.has_gps ? '위치 정보 있음' : ''),
   ].filter(Boolean);
 
   return '<div class="rk' + (m.memory_id === nextId ? ' next' : '') + (s.excluded ? ' ex' : '') + '"'
@@ -577,9 +594,15 @@ function rankCard({ memory: m, score: s }, nextId) {
     + (status ? '<span class="' + (a?.status === 'PENDING' ? 'pending' : '') + '">' + esc(status) + '</span>' : '')
     + (canRetry ? '<button type="button" class="btn-sm" data-act="analyze">살펴보기</button>' : '')
     + fileInfo.map((x) => '<span>' + x + '</span>').join('')
-    + '<label>찍은 해 <input type="number" min="1900" max="2100" placeholder="모름"'
+    + '<label>찍은 해 <input type="number" min="1900" max="2100" placeholder="모름" data-field="year"'
     + ' value="' + (m.taken_year || '') + '"></label>'
     + '<button type="button" class="btn-sm" data-act="year">저장</button>'
+    /* 사진에 위치가 남아 있지 않을 때 직접 적어 두시는 곳.
+       적어 두면 기억이 안 나실 때 단서로 씁니다 (파일에서 읽은 것과 구분해 둡니다) */
+    + '<label>장소 <input type="text" maxlength="40" data-field="place"'
+    + ' placeholder="' + (m.meta?.location_name ? esc(m.meta.location_name) : '모름') + '"'
+    + ' value="' + esc(m.meta?.location_source === 'USER_INPUT' ? m.meta.location_name : '') + '"></label>'
+    + '<button type="button" class="btn-sm" data-act="place">저장</button>'
     + '</div>'
     + '</div></div>';
 }
@@ -628,8 +651,11 @@ $('rank').addEventListener('click', async (e) => {
     } else if (btn.dataset.act === 'avoid') {
       await api(url, { method: 'PATCH', body: JSON.stringify({ avoid: !btn.classList.contains('on') }) });
     } else if (btn.dataset.act === 'year') {
-      const typed = cardEl.querySelector('.rk-foot input').value.trim();
+      const typed = cardEl.querySelector('input[data-field="year"]').value.trim();
       await api(url, { method: 'PATCH', body: JSON.stringify({ taken_year: typed || null }) });
+    } else if (btn.dataset.act === 'place') {
+      const typed = cardEl.querySelector('input[data-field="place"]').value.trim();
+      await api(url, { method: 'PATCH', body: JSON.stringify({ location_name: typed }) });
     } else if (btn.dataset.act === 'analyze') {
       await api(url + '/analyze' + Q, { method: 'POST' });
     }

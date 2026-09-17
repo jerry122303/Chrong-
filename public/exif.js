@@ -17,7 +17,8 @@ const TAG = {
   EXIF_IFD: 0x8769,
   GPS_IFD: 0x8825,
   DATE_ORIGINAL: 0x9003,     // 찍은 때
-  DATE_DIGITIZED: 0x9004,    // 디지털로 옮긴 때 (찍은 때가 없을 때만)
+  DATE_DIGITIZED: 0x9004,    // 디지털로 옮긴 때 (찍은 때가 없을 때만). exiftool 의 CreateDate
+  MODIFY_DATE: 0x0132,       // 파일을 고친 때. 찍은 때가 아닐 수 있어 단서로는 쓰지 않는다
   GPS_LAT_REF: 0x0001,
   GPS_LAT: 0x0002,
   GPS_LON_REF: 0x0003,
@@ -108,9 +109,23 @@ function parseTiff(u8, start, end) {
   const exif = readIfd(pointer(ifd0.get(TAG.EXIF_IFD)));
   const gps = readIfd(pointer(ifd0.get(TAG.GPS_IFD)));
 
+  /* 사진마다 날짜가 적혀 있는 자리가 달라서 차례로 찾는다.
+     파일을 고친 때(ModifyDate)는 찍은 때가 아닐 수 있으므로 같은 믿음으로 쓰지 않는다 —
+     카카오톡으로 받은 사진이나 편집한 사진은 이 값이 '오늘' 인 경우가 많다. */
+  const original = parseExifDate(ascii(exif.get(TAG.DATE_ORIGINAL)));
+  const created = parseExifDate(ascii(exif.get(TAG.DATE_DIGITIZED)));
+  const modified = parseExifDate(ascii(ifd0.get(TAG.MODIFY_DATE)));
+
+  const when = original
+    ? { takenAt: original, dateSource: 'EXIF_DATETIME_ORIGINAL', dateConfidence: 'HIGH' }
+    : created
+      ? { takenAt: created, dateSource: 'EXIF_CREATE_DATE', dateConfidence: 'HIGH' }
+      : modified
+        ? { takenAt: modified, dateSource: 'EXIF_MODIFY_DATE', dateConfidence: 'LOW' }
+        : { takenAt: null, dateSource: null, dateConfidence: null };
+
   return {
-    takenAt: parseExifDate(ascii(exif.get(TAG.DATE_ORIGINAL)))
-      || parseExifDate(ascii(exif.get(TAG.DATE_DIGITIZED))),
+    ...when,
     gps: toGps(
       ascii(gps.get(TAG.GPS_LAT_REF)), rational3(gps.get(TAG.GPS_LAT)),
       ascii(gps.get(TAG.GPS_LON_REF)), rational3(gps.get(TAG.GPS_LON))),
@@ -123,7 +138,7 @@ function parseTiff(u8, start, end) {
  * @returns {{ takenAt: string|null, gps: {lat:number, lon:number}|null }}
  */
 export function readExif(input) {
-  const empty = { takenAt: null, gps: null };
+  const empty = { takenAt: null, dateSource: null, dateConfidence: null, gps: null };
   let u8;
   try {
     u8 = input instanceof Uint8Array ? input
@@ -163,7 +178,7 @@ export async function readExifFromFile(file) {
   try {
     return readExif(await file.slice(0, 256 * 1024).arrayBuffer());
   } catch {
-    return { takenAt: null, gps: null };
+    return { takenAt: null, dateSource: null, dateConfidence: null, gps: null };
   }
 }
 

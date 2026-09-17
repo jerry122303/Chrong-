@@ -86,6 +86,8 @@ const state = {
   bot: BOT,
   // 옆 서랍에 남는 지금 대화 (들어오면 늘 새 대화다)
   threadId: null,
+  // 오늘 떠올린 기억 카드 (저장하실지 여쭐 때 쓴다)
+  summary: null,
 };
 
 /** 지금 고른 말동무의 이름 */
@@ -1124,8 +1126,16 @@ async function attachPhoto(file) {
     const exif = await readExifFromFile(file);
     const small = await shrinkPhoto(file);
 
+    /* 어떤 사진은 날짜가 나오고 어떤 사진은 안 나온다. 무엇을 읽었는지 남겨 둔다 */
+    console.log('[사진] 파일에서 읽은 것 —', exif);
+
     const fd = new FormData();
-    if (exif.takenAt) fd.append('taken_at', exif.takenAt);
+    if (exif.takenAt) {
+      fd.append('taken_at', exif.takenAt);
+      /* 어느 자리에서 읽었는지도 함께 보낸다. 파일을 고친 때는 찍은 때가 아닐 수 있다 */
+      if (exif.dateSource) fd.append('date_source', exif.dateSource);
+      if (exif.dateConfidence) fd.append('date_confidence', exif.dateConfidence);
+    }
     if (exif.gps) {
       fd.append('gps_lat', String(exif.gps.lat));
       fd.append('gps_lon', String(exif.gps.lon));
@@ -1169,12 +1179,22 @@ async function attachPhoto(file) {
 let rating = null;   // 중요도를 여쭙는 중인 사진
 const STAR_WORD = { 1: '평범한', 2: '소중한', 3: '매우 소중한' };
 
-/** 사진 파일에서 읽은 것을 한 줄로 */
+/**
+ * 사진 파일에서 읽은 것을 알려 드린다.
+ *
+ * 모든 사진에 촬영 정보가 남아 있지는 않다. 주고받은 사진이나 화면을 찍은 사진은
+ * 날짜와 위치가 지워져 있다. 세 가지 경우를 나눠 알려 드리고, 없을 때는
+ * 보호자 화면에서 적어 두실 수 있다고 안내한다 (지어내지 않는다).
+ */
 function describeMeta(exif) {
-  const bits = [];
-  if (exif?.takenAt) bits.push('찍은 날 ' + formatTakenDate(exif.takenAt));
-  if (exif?.gps) bits.push('찍은 곳 위치 정보');
-  return bits.length ? '사진에서 읽은 정보 — ' + bits.join(' · ') : '';
+  /* 파일을 고친 때만 남은 사진은 찍은 날로 여기지 않는다 */
+  const day = exif?.takenAt && exif.dateConfidence !== 'LOW' ? formatTakenDate(exif.takenAt) : '';
+  const hasGps = Boolean(exif?.gps);
+
+  if (day && hasGps) return `찍은 날 ${day} · 찍은 곳 정보도 함께 남아 있어요`;
+  if (day) return `찍은 날 ${day} · 찍은 곳 정보는 없어요`;
+  if (hasGps) return '찍은 곳 정보는 남아 있는데 찍은 날은 없어요';
+  return '이 사진에는 찍은 날과 곳 정보가 남아 있지 않아요. 보호자 화면에서 적어 두실 수 있어요.';
 }
 
 /* 좁은 화면에서는 입력칸이 화면 아래에 붙어 있어 마지막 선택지가 그 뒤에 가려진다.
@@ -1687,6 +1707,7 @@ async function showTodayReport() {
 function showSummary(summary) {
   const text = (summary.lines || []).join('\n');
   if (!text) return;
+  state.summary = summary;   // 저장하시겠다고 하면 단계별 결과도 함께 남긴다
   addMessage('bot', `${summary.title}\n${text}`);
   showCare({
     say: false,
@@ -1701,8 +1722,21 @@ function showSummary(summary) {
 
 async function keepSummary(keep) {
   hideCare();
+  const summary = state.summary;
+  state.summary = null;
+
   if (state.pending && state.pending.length) await decideKeep(keep);
   else toast(keep ? '오늘 이야기를 남겨 두었어요' : '남기지 않았어요');
+
+  /* 어느 단계가 떠올랐고 어느 단계가 아직인지 적어 둔다.
+     다음에 같은 사진을 볼 때 그쪽을 천천히 다시 보기 위해서다 (시험 점수가 아니다) */
+  if (keep && summary && state.memory) {
+    const status = {};
+    for (const it of summary.items || []) status[it.area] = it.status;
+    threadApi(`/api/memories/${state.memory.memory_id}/recall`, {
+      method: 'POST', body: { recall_status: status },
+    });
+  }
   if (keep) {
     careApi('/api/care/summary', {
       topics: state.memory ? [state.memory.title || '사진 이야기'] : [],

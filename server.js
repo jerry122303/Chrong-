@@ -28,6 +28,7 @@ import { mountThreadRoutes } from './lib/thread-api.js';
 import { isStopRequest, STOP_RESPONSE, hardViolation } from './lib/recall-prompt.js';
 import { recallPlan, buildRecallPrompt, tidyRecallReply, recallInfo } from './lib/recall-chat.js';
 import { summaryCard } from './lib/recall-flow.js';
+import { placeName, GEOCODE_ON } from './lib/geocode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1322,7 +1323,15 @@ const fail = (res, code, message) => res.status(code).json({ error: 'FAILED', me
 /** 화면으로 보낼 때는 위치 좌표를 빼고 '있음' 만 알린다. 좌표는 서버에만 둔다. */
 const forClient = (m) => (m ? {
   ...m,
-  meta: { taken_at: m.meta?.taken_at || null, has_gps: Boolean(m.meta?.gps) },
+  /* 좌표 자체는 화면으로 내보내지 않는다. 사람이 아는 이름으로 바꾼 것만 보낸다 */
+  meta: {
+    taken_at: m.meta?.taken_at || null,
+    date_source: m.meta?.date_source || null,
+    date_confidence: m.meta?.date_confidence || null,
+    has_gps: Boolean(m.meta?.gps),
+    location_name: m.meta?.location_name || '',
+    location_source: m.meta?.location_source || null,
+  },
 } : m);
 
 /** 추천 점수에 필요한 것 — 태어나신 해(⑥)와 최근 회기에 나온 기억(⑦⑧, 최신순) */
@@ -1339,6 +1348,9 @@ function uploadMeta(body = {}) {
   const has = (v) => v !== undefined && v !== null && v !== '';
   return {
     taken_at: body.taken_at || null,
+    /* 어느 자리에서 읽은 날짜인지. 파일을 고친 때는 찍은 때가 아닐 수 있어 따로 적어 둔다 */
+    date_source: body.date_source || null,
+    date_confidence: body.date_confidence || null,
     gps: has(body.gps_lat) && has(body.gps_lon) ? { lat: body.gps_lat, lon: body.gps_lon } : null,
   };
 }
@@ -1383,6 +1395,31 @@ function analyzeLater(memoryId) {
       analyzing.delete(key);
     }
   })().catch((err) => console.warn('[analyze]', err));
+}
+
+/**
+ * 사진에 남은 좌표를 사람이 아는 장소 이름으로 바꾼다 (lib/geocode.js).
+ *
+ * 살펴보기와 마찬가지로 응답을 먼저 보내고 뒤에서 한다.
+ * 못 찾아도 아무 일도 일어나지 않는다 — 장소 이름이 없어도 대화는 굴러간다.
+ * 좌표는 여기서만 쓰고 화면이나 모델에게는 나가지 않는다.
+ */
+function locateLater(memoryId) {
+  if (!GEOCODE_ON) return;
+  (async () => {
+    const memory = await memories.get(memoryId);
+    if (!memory?.meta?.gps || memory.meta.location_name) return;
+
+    const name = await placeName(memory.meta.gps);
+    if (!name) return;
+
+    const now = await memories.get(memoryId);
+    if (!now?.meta?.gps) return;        // 그 사이 사진이 바뀌었으면 붙이지 않는다
+    await memories.update(memoryId, {
+      meta: { ...now.meta, location_name: name, location_source: 'EXIF_GPS' },
+    });
+    console.log(`[geocode] ${memoryId} — ${name}`);
+  })().catch((err) => console.warn('[geocode]', err.message));
 }
 
 /** 이 어르신의 기억 목록 */
@@ -1445,6 +1482,16 @@ app.post('/api/memories/upload', photoUpload.single('photo'), async (req, res) =
       analysis: analysisStart(),
     });
     analyzeLater(memory.memory_id);
+    locateLater(memory.memory_id);
+
+    /* 어떤 사진은 날짜가 나오고 어떤 사진은 안 나오므로, 무엇을 읽었는지 남겨 둔다 */
+    console.log('[photo] 올린 사진 —', {
+      memory_id: memory.memory_id,
+      taken_at: memory.meta.taken_at,
+      date_source: memory.meta.date_source,
+      date_confidence: memory.meta.date_confidence,
+      gps: memory.meta.gps ? '있음' : '없음',
+    });
 
     res.status(201).json({ memory: forClient(memory), photo: saved });
   } catch (err) {
@@ -1517,6 +1564,27 @@ app.patch('/api/memories/:id', async (req, res) => {
     if ('avoid' in body) patch.avoid = body.avoid === true;
     if ('taken_year' in body) patch.taken_year = body.taken_year;   // 말이 안 되는 해면 null
     if ('hidden' in body) patch.hidden = body.hidden === true;
+
+    /* 사진에 촬영 정보가 없을 때 직접 적어 두신 것.
+       파일에서 읽은 것과 섞이지 않게 출처를 USER_INPUT 으로 남긴다 */
+    if ('taken_at' in body || 'location_name' in body) {
+      const cur = await memories.get(req.params.id);
+      if (!cur) return fail(res, 404, '그런 기억이 없어요.');
+      patch.meta = { ...cur.meta };
+
+      if ('taken_at' in body) {
+        const day = String(body.taken_at || '').trim();
+        const full = /^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day}T00:00:00` : day;
+        patch.meta.taken_at = full || null;
+        patch.meta.date_source = full ? 'USER_INPUT' : null;
+        patch.meta.date_confidence = full ? 'HIGH' : null;
+      }
+      if ('location_name' in body) {
+        patch.meta.location_name = String(body.location_name || '').trim();
+        patch.meta.location_source = patch.meta.location_name ? 'USER_INPUT' : null;
+      }
+    }
+
     if (Object.keys(patch).length === 0) return fail(res, 400, '바꿀 내용이 없어요.');
 
     const memory = await memories.update(req.params.id, patch);
@@ -1525,6 +1593,25 @@ app.patch('/api/memories/:id', async (req, res) => {
   } catch (err) {
     console.error('[memories] patch', err);
     fail(res, 500, '바꾸지 못했어요.');
+  }
+});
+
+/**
+ * 오늘 떠올린 단계를 적어 둔다 (대화 수정본 21번).
+ *
+ * 잘했다 못했다를 남기는 것이 아니라, 다음에 같은 사진을 볼 때 어느 쪽을
+ * 천천히 다시 볼지 정하는 데만 쓴다. 어르신이 저장에 동의하셨을 때만 들어온다.
+ */
+app.post('/api/memories/:id/recall', async (req, res) => {
+  try {
+    const memory = await memories.update(req.params.id, {
+      recall_status: req.body?.recall_status,
+    });
+    if (!memory) return fail(res, 404, '그런 기억이 없어요.');
+    res.json({ memory: forClient(memory) });
+  } catch (err) {
+    console.error('[memories] recall', err);
+    fail(res, 500, '오늘 이야기를 적어 두지 못했어요.');
   }
 });
 
