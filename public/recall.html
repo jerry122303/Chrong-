@@ -13,6 +13,23 @@
 </head>
 <body class="fs-2" data-bot="recall">
 
+  <!-- 위기 신호를 알아들었을 때 — 말로만 드리지 않고 번호가 눈에 보이게 띄운다.
+       번호는 lib/care-rules.js 의 CRISIS_LINE 과 같은 것이다 (모델이 짓지 않는다) -->
+  <div id="crisis" class="crisis" hidden role="alert">
+    <div class="crisis-box">
+      <p class="crisis-title">혼자 견디지 마세요</p>
+      <p class="crisis-text">
+        마음이 많이 힘드시면 하루 스물네 시간 열려 있는 상담전화로 이야기하실 수 있어요.
+        가까운 가족분께도 꼭 알려 주세요.
+      </p>
+      <div class="crisis-acts">
+        <a class="crisis-call" href="tel:1577-0199">정신건강 상담전화<b>1577-0199</b></a>
+        <a class="crisis-call crisis-119" href="tel:119">위험할 때<b>119</b></a>
+      </div>
+      <button id="crisis-close" class="crisis-close" type="button">닫기</button>
+    </div>
+  </div>
+
   <!-- ================= 지난 대화 서랍 ================= -->
   <!-- 들어오면 늘 새 대화다. 서랍에서 고르시면 그때 이야기가 이어진다 -->
   <div id="scrim" class="scrim"></div>
@@ -104,6 +121,13 @@
         </svg>
         <span class="ctrl-label">대화 지우기</span>
       </button>
+      <!-- 마치는 때를 정하시는 것은 어르신이다. 늘 보이게 둔다 (전달 패키지 2-가-2) -->
+      <button id="btn-end" class="ctrl ctrl-end" type="button">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4.2v8"/><path d="M7.6 7.3a7 7 0 1 0 8.8 0"/>
+        </svg>
+        <span class="ctrl-label">대화 종료</span>
+      </button>
     </nav>
   </header>
 
@@ -133,6 +157,31 @@
           <button id="btn-keep-yes" class="keep-btn keep-yes" type="button">네, 남겨 주세요</button>
           <button id="btn-keep-no" class="keep-btn" type="button">아니요</button>
         </div>
+      </div>
+
+      <!-- 대화를 마친 뒤 — 지금 기분을 표정으로 여쭙는다 (전달 패키지 2-나).
+           점수로 묻지 않고, 말로 대답하시라 하지 않는다. 셋 중 하나만 누르시면 된다.
+           대화 중에 하신 말씀의 낱말로는 기분을 재지 않는다 (지난 일을 말씀하신 것이므로). -->
+      <div id="feel" class="feel" hidden role="group" aria-labelledby="feel-q">
+        <p id="feel-q" class="feel-q">지금 기분이 어떠신지 얼굴 표정을 하나 눌러 주세요.</p>
+        <div class="feel-acts">
+          <button class="feel-btn" type="button" data-feel="COMFORTABLE"
+                  aria-label="편안해요, 좋아요">
+            <span class="feel-face" aria-hidden="true">😊</span>
+            <b>편안해요</b><span class="feel-sub">좋아요</span>
+          </button>
+          <button class="feel-btn" type="button" data-feel="NEUTRAL"
+                  aria-label="보통이에요, 괜찮아요">
+            <span class="feel-face" aria-hidden="true">😐</span>
+            <b>보통이에요</b><span class="feel-sub">괜찮아요</span>
+          </button>
+          <button class="feel-btn" type="button" data-feel="DISCOMFORT"
+                  aria-label="피곤해요, 불편해요">
+            <span class="feel-face" aria-hidden="true">😞</span>
+            <b>피곤해요</b><span class="feel-sub">불편해요</span>
+          </button>
+        </div>
+        <button id="feel-skip" class="care-later" type="button">그냥 마칠게요</button>
       </div>
 
       <!-- 사진을 올리시면 얼마나 소중한 사진인지 여쭙는다. 추천 점수의 한 항목이다 -->
@@ -259,6 +308,12 @@
       <button id="btn-swap" class="set-row" type="button">
         <span class="set-name">캐릭터 바꾸기</span>
         <b>고르기</b>
+      </button>
+
+      <!-- 인지케어 모드 — 켜 두면 초롱이가 오늘의 인지 활동을 하루 한 번 먼저 권합니다 -->
+      <button id="btn-cogmode" class="set-row" type="button" aria-pressed="true">
+        <span class="set-name">인지케어 모드</span>
+        <b id="cogmode-state">켜짐</b>
       </button>
 
       <button id="btn-settings-close" class="set-close" type="button">닫기</button>

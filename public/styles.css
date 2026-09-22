@@ -991,6 +991,66 @@ body.has-keybar { grid-template-rows: auto auto 1fr auto; }
 }
 .care-later:hover { color: var(--brand); }
 
+/* ==================================================================
+ *  대화를 마친 뒤 — 지금 기분을 표정으로 (전달 패키지 v2.4 2-나)
+ *  점수로 묻지 않는다. 말로 대답하시라 하지 않는다.
+ *  눈에 잘 들어오도록 얼굴을 크게 두고, 셋을 나란히 놓는다.
+ * ================================================================== */
+.feel {
+  flex: 0 0 auto;
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--brand);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.feel[hidden] { display: none; }
+.feel-q {
+  margin: 0;
+  font-size: calc(var(--base) * .96);
+  font-weight: 700;
+  color: var(--ink);
+}
+.feel-acts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.feel-btn {
+  font: inherit;
+  font-size: calc(var(--base) * .84);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-btn);
+  padding: 10px 6px;
+  min-height: 96px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  line-height: 1.25;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.feel-btn:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+.feel-face { font-size: calc(var(--base) * 1.9); line-height: 1; }
+.feel-sub { font-size: calc(var(--base) * .72); font-weight: 500; color: var(--ink-3); }
+
+/* 상시 [대화 종료] — 다른 단추보다 또렷하게 보여야 누르실 수 있다 */
+.ctrl-end {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+  font-weight: 700;
+}
+.ctrl-end:hover { background: var(--brand); border-color: var(--brand); color: #fff; }
+
 /* 자주 쓰는 말 줄의 돌봄 버튼 — 회상 버튼과 나란히, 칩보다 또렷하게 */
 .btn-care {
   flex: 0 0 auto;
@@ -1297,6 +1357,137 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
   cursor: pointer;
 }
 .set-close:hover { background: var(--brand-2); }
+
+/* ==================================================================
+ *  위기 신호 배너 (Safety Response)
+ *  정해진 안내를 말로 드리지만, 번호는 귀로 들으면 흘러간다.
+ *  화면에도 띄워 바로 누르실 수 있게 한다.
+ *  번호는 lib/care-rules.js 의 CRISIS_LINE 과 같은 것이다.
+ * ================================================================== */
+.crisis {
+  position: fixed; inset: 0; z-index: 120;
+  display: grid; place-items: center;
+  background: rgba(20, 26, 23, .45);
+  padding: 20px;
+}
+.crisis[hidden] { display: none; }
+.crisis-box {
+  width: min(460px, 100%);
+  background: var(--card);
+  border: 2px solid #C2564E;
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.crisis-title {
+  margin: 0;
+  font-size: calc(var(--base) * 1.1);
+  font-weight: 700;
+  color: #A8443C;
+}
+.crisis-text { margin: 0; font-size: calc(var(--base) * .86); line-height: 1.7; color: var(--ink); }
+.crisis-acts { display: grid; gap: 10px; }
+.crisis-call {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  text-decoration: none;
+  font-size: calc(var(--base) * .84);
+  color: #fff;
+  background: #C2564E;
+  border-radius: var(--r-btn);
+  padding: 0 18px;
+  min-height: 62px;
+}
+.crisis-call b { font-size: calc(var(--base) * 1.02); font-weight: 700; letter-spacing: .5px; }
+.crisis-call:hover { background: #A8443C; }
+.crisis-119 { background: #8C3A34; }
+.crisis-119:hover { background: #75302B; }
+.crisis-close {
+  font: inherit;
+  font-size: calc(var(--base) * .82);
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-btn);
+  min-height: 50px;
+  cursor: pointer;
+}
+.crisis-close:hover { border-color: var(--brand); color: var(--brand); }
+
+/* --- 설정 안에서 여는 칸 — 약 알림 시간 · 최근 기분 변화 --- */
+.sheet-hint { margin: 0; font-size: calc(var(--base) * .76); color: var(--ink-3); line-height: 1.6; }
+.sheet-input {
+  font: inherit;
+  font-size: calc(var(--base) * .9);
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-btn);
+  padding: 0 16px;
+  min-height: 56px;
+  width: 100%;
+}
+.sheet-input:focus { outline: none; border-color: var(--brand); }
+.sheet-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.sheet-chip {
+  font: inherit;
+  font-size: calc(var(--base) * .82);
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-btn);
+  min-height: 52px;
+  cursor: pointer;
+}
+.sheet-chip[aria-pressed="true"] {
+  background: var(--brand-soft); border-color: var(--brand); color: var(--brand); font-weight: 700;
+}
+.sheet-list { display: flex; flex-direction: column; gap: 8px; max-height: 30vh; overflow-y: auto; }
+.sheet-item {
+  display: flex; align-items: center; gap: 10px;
+  font-size: calc(var(--base) * .84);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  padding: 10px 14px;
+}
+.sheet-item b { font-weight: 700; }
+.sheet-item span { margin-right: auto; color: var(--ink-2); font-size: calc(var(--base) * .78); }
+.sheet-del {
+  font: inherit;
+  font-size: calc(var(--base) * .76);
+  color: var(--ink-3);
+  background: none;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.sheet-del:hover { color: #A8443C; border-color: #D8A9A5; }
+.sheet-cancel {
+  font: inherit;
+  font-size: calc(var(--base) * .82);
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.sheet-cancel:hover { color: var(--brand); }
+.sheet-bars { display: flex; align-items: flex-end; gap: 5px; height: 84px; }
+.sheet-bars i {
+  flex: 1 1 0;
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-line);
+  border-radius: 4px 4px 0 0;
+  min-height: 6px;
+}
+.sheet-bars i.up { background: var(--brand); border-color: var(--brand); }
+.sheet-bars i.down { background: #E8C5C2; border-color: #D8A9A5; }
+.sheet-bars i.none { background: var(--line); border-color: var(--line); opacity: .55; }
 .rate-avoid {
   grid-column: 1 / -1;
   flex-direction: row;

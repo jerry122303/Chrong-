@@ -13,6 +13,23 @@
 </head>
 <body class="fs-2" data-bot="health">
 
+  <!-- 위기 신호를 알아들었을 때 — 말로만 드리지 않고 번호가 눈에 보이게 띄운다.
+       번호는 lib/care-rules.js 의 CRISIS_LINE 과 같은 것이다 (모델이 짓지 않는다) -->
+  <div id="crisis" class="crisis" hidden role="alert">
+    <div class="crisis-box">
+      <p class="crisis-title">혼자 견디지 마세요</p>
+      <p class="crisis-text">
+        마음이 많이 힘드시면 하루 스물네 시간 열려 있는 상담전화로 이야기하실 수 있어요.
+        가까운 가족분께도 꼭 알려 주세요.
+      </p>
+      <div class="crisis-acts">
+        <a class="crisis-call" href="tel:1577-0199">정신건강 상담전화<b>1577-0199</b></a>
+        <a class="crisis-call crisis-119" href="tel:119">위험할 때<b>119</b></a>
+      </div>
+      <button id="crisis-close" class="crisis-close" type="button">닫기</button>
+    </div>
+  </div>
+
   <!-- ================= 지난 대화 서랍 ================= -->
   <!-- 들어오면 늘 새 대화다. 서랍에서 고르시면 그때 이야기가 이어진다 -->
   <div id="scrim" class="scrim"></div>
@@ -174,6 +191,12 @@
         </svg>
         오늘의 활동
       </button>
+      <button id="btn-goal" class="btn-care" type="button">
+        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>
+        </svg>
+        오늘 목표
+      </button>
       <button id="btn-report" class="btn-care" type="button">
         <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="5" y="4" width="14" height="16" rx="2.5"/><path d="M8.5 9h7"/><path d="M8.5 13h7"/><path d="M8.5 17h4"/>
@@ -221,7 +244,64 @@
         <b>고르기</b>
       </button>
 
+      <!-- 약 알림 시간 (자주 쓰지 않으니 설정 안에 둔다) -->
+      <button id="btn-meds" class="set-row" type="button">
+        <span class="set-name">약 알림 시간</span>
+        <b>등록</b>
+      </button>
+
+      <button id="btn-trend" class="set-row" type="button">
+        <span class="set-name">최근 기분 변화</span>
+        <b>보기</b>
+      </button>
+      <!-- 인지케어 모드 — 켜 두면 초롱이가 오늘의 인지 활동을 하루 한 번 먼저 권합니다 -->
+      <button id="btn-cogmode" class="set-row" type="button" aria-pressed="true">
+        <span class="set-name">인지케어 모드</span>
+        <b id="cogmode-state">켜짐</b>
+      </button>
+
       <button id="btn-settings-close" class="set-close" type="button">닫기</button>
+    </div>
+  </div>
+
+  <!-- ================= 약 알림 시간 ================= -->
+  <!-- 등록해 두면 드실 때가 지났는데 기록이 없을 때 초롱이가 대화 중에 한 번 여쭙니다.
+       따로 소리를 울리지는 않습니다 (lib/care-api.js /api/care/medications) -->
+  <div id="meds" class="settings" hidden role="dialog" aria-modal="true" aria-label="약 알림 시간">
+    <div class="settings-box">
+      <h2 class="settings-title">약 알림 시간</h2>
+      <p class="sheet-hint">
+        등록해 두시면 드실 때가 지났는데 기록이 없을 때, 초롱이가 대화 중에 한 번만 가볍게 여쭤봐요.
+      </p>
+
+      <label class="sr-only" for="med-name">약 이름</label>
+      <input id="med-name" class="sheet-input" type="text" maxlength="40"
+             placeholder="약 이름 (예: 혈압약)" autocomplete="off">
+
+      <div id="med-times" class="sheet-chips" role="group" aria-label="드시는 때">
+        <button class="sheet-chip" type="button" data-time="08:00" aria-pressed="false">아침 8시</button>
+        <button class="sheet-chip" type="button" data-time="12:00" aria-pressed="false">점심 12시</button>
+        <button class="sheet-chip" type="button" data-time="18:00" aria-pressed="false">저녁 6시</button>
+        <button class="sheet-chip" type="button" data-time="21:00" aria-pressed="false">자기 전 9시</button>
+      </div>
+
+      <button id="med-add" class="set-close" type="button">이 약 등록하기</button>
+      <div id="med-list" class="sheet-list"></div>
+      <button id="meds-close" class="sheet-cancel" type="button">닫기</button>
+    </div>
+  </div>
+
+  <!-- ================= 최근 열나흘 기분 ================= -->
+  <!-- 오늘 기분을 여쭤본 날만 막대가 올라갑니다 (lib/care-score.js moodTrend) -->
+  <div id="trend14" class="settings" hidden role="dialog" aria-modal="true" aria-label="최근 기분 변화">
+    <div class="settings-box">
+      <h2 class="settings-title">최근 열나흘 기분</h2>
+      <p class="sheet-hint">
+        점수를 매기려는 것이 아니에요. 어떤 날이 힘드셨는지 함께 보려는 거예요.
+      </p>
+      <div id="trend14-bars" class="sheet-bars"></div>
+      <p id="trend14-say" class="sheet-hint"></p>
+      <button id="trend14-close" class="set-close" type="button">닫기</button>
     </div>
   </div>
 

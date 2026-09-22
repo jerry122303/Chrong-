@@ -26,6 +26,10 @@ import {
 import { ThreadStore } from './lib/thread-store.js';
 import { mountThreadRoutes } from './lib/thread-api.js';
 import { isStopRequest, STOP_RESPONSE, hardViolation } from './lib/recall-prompt.js';
+/* 대화 종료 · 표정 측정 · 정서 추세 (전달 패키지 v2.4) */
+import {
+  TERMINATION_UTTERANCE, TERMINATION_UI_ACTION, EMOTION_CHOICES, EMOTION_RATINGS, THANKS,
+} from './lib/termination.js';
 import { recallPlan, buildRecallPrompt, tidyRecallReply, recallInfo } from './lib/recall-chat.js';
 import { summaryCard } from './lib/recall-flow.js';
 import { placeName, GEOCODE_ON } from './lib/geocode.js';
@@ -805,7 +809,10 @@ app.post('/api/chat', async (req, res) => {
   const budget = questionBudget(trimmed);
   /* 회기가 오 분을 넘으면 마무리를 여쭈어야 하므로, 회상 질문 예산과 무관하게 물을 수 있다
      (문서: 종료 확인은 회상 질문 예산과 별도로 계산한다) */
-  const closing = sessionSeconds >= SESSION_SECONDS;
+  /* 회상치료 챗봇은 시간이 넘었다고 초롱이가 마무리를 꺼내지 않는다.
+     마치는 때를 정하시는 것은 어르신이고, 화면에는 [대화 종료] 가 늘 떠 있다
+     (전달 패키지 v2.4 2-가-1: AI 임의 턴 제한 자동 종료 전면 삭제). */
+  const closing = !recallBot && sessionSeconds >= SESSION_SECONDS;
   const recall = Boolean(req.body?.memory_id);
   /* 스스로를 해치겠다는 말씀은 다른 무엇보다 먼저다. 모델에게 맡기지 않고 정해진 안내를 드린다.
      상담 전화번호를 모델이 지어내면 큰일이고, 이 말씀에 회상 질문이 이어져서도 안 된다.
@@ -862,7 +869,10 @@ app.post('/api/chat', async (req, res) => {
   /* 이미 정해 두신 목표. 아직 구체화 중이면 이어지는 대답도 그 목표를 채우는 말이다 */
   let draftGoal = null;
   try {
-    careNote = await noteFromTalk(cares, ownerId, lastUserText, { history: trimmed });
+    /* 회상 대화에서는 낱말로 기분을 읽지 않는다 (전달 패키지 FAQ Q3).
+       지난 일을 말씀하시며 쓰신 '불안 · 아팠다' 가 오늘 기록이 되면 안 된다. */
+    careNote = await noteFromTalk(cares, ownerId, lastUserText,
+      { history: trimmed, keywords: !recallBot });
     const careData = await cares.get(ownerId);
     draftGoal = cares.activeGoal(careData);
     careContext = buildCareContext(careData, { lastUserText, history: trimmed });
@@ -1912,6 +1922,63 @@ app.get('/api/sessions', async (req, res) => {
 /** 문서의 초기 평가 지표 */
 app.get('/api/sessions/metrics', async (req, res) => {
   res.json({ metrics: await sessions.metrics(owner(req)) });
+});
+
+/* --- 대화 종료와 표정 측정 (전달 패키지 v2.4 — lib/termination.js) ------
+   초롱이가 질문 횟수를 세어 대화를 끊지 않는다. 마치는 때를 정하시는 것은
+   어르신이다. 화면에 늘 떠 있는 [대화 종료] 를 누르시면 정해진 인사를 드리고,
+   지금 기분을 표정 셋 가운데 하나로 여쭙는다. 점수나 정도로 묻지 않는다. */
+
+/** [대화 종료] 를 누르신 차례 — 정해진 인사와 표정 버튼을 돌려준다 */
+app.post('/api/sessions/:id/terminate', async (req, res) => {
+  try {
+    const session = await sessions.terminate(req.params.id);
+    if (!session) return fail(res, 404, '그런 대화가 없어요.');
+    res.json({
+      session_id: session.session_id,
+      status: session.termination_type,
+      turns_used: session.turns_used || 0,
+      bot_response: TERMINATION_UTTERANCE,
+      ui_action: TERMINATION_UI_ACTION,
+      choices: EMOTION_CHOICES,
+    });
+  } catch (err) {
+    console.error('[sessions] terminate', err);
+    fail(res, 500, '대화를 마치지 못했어요.');
+  }
+});
+
+/** 마치며 고르신 표정 하나 (😊 3점 · 😐 2점 · 😞 1점) */
+app.post('/api/sessions/:id/emotion', async (req, res) => {
+  const rating = String(req.body?.rating || '');
+  if (!EMOTION_RATINGS.includes(rating)) return fail(res, 400, '어떤 표정인지 알아보지 못했어요.');
+  try {
+    const session = await sessions.recordEmotion(req.params.id, rating);
+    if (!session) return fail(res, 404, '그런 대화가 없어요.');
+    res.json({
+      session: {
+        session_id: session.session_id,
+        termination_type: session.termination_type,
+        turns_used: session.turns_used || 0,
+        selected_emotion: session.selected_emotion,
+        emotion_score: session.emotion_score,
+      },
+      reply: THANKS[rating] || '',
+    });
+  } catch (err) {
+    console.error('[sessions] emotion', err);
+    fail(res, 500, '기분을 남기지 못했어요.');
+  }
+});
+
+/** 정서적 안도감 추세 — 보호자 화면이 보여 드린다 */
+app.get('/api/sessions/trend', async (req, res) => {
+  try {
+    res.json({ trend: await sessions.trend(owner(req)) });
+  } catch (err) {
+    console.error('[sessions] trend', err);
+    fail(res, 500, '기분 기록을 불러오지 못했어요.');
+  }
 });
 
 /* 건강 돌봄 — 기분 · 통증 · 복약 · 목표 · 오늘의 활동 · 하루 요약 (lib/care-api.js).

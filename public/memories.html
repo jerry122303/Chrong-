@@ -262,6 +262,29 @@
     <div class="log" id="log"></div>
   </div>
 
+  <!-- 대화를 마치며 고르신 표정 (lib/termination.js) -->
+  <style>
+    .feel-sum { font-size: calc(var(--base) * .86); line-height: 1.7; margin: 0 0 12px; }
+    .feel-bars { display: flex; align-items: flex-end; gap: 6px; height: 72px; margin-top: 12px; }
+    .feel-bars i {
+      flex: 1 1 0; border-radius: 3px 3px 0 0;
+      background: var(--brand-soft); border: 1px solid var(--brand-line); min-height: 6px;
+    }
+    .feel-bars i.s3 { background: var(--brand); border-color: var(--brand); }
+    .feel-bars i.s1 { background: #E8C5C2; border-color: #D8A9A5; }
+  </style>
+  <div class="card">
+    <h2>대화를 마친 뒤 기분 <span id="feelCount" class="hint"></span></h2>
+    <p class="hint" style="margin:-8px 0 14px">
+      회상 대화를 마치실 때 어르신이 직접 고르신 표정입니다 (😊 3점 · 😐 2점 · 😞 1점).
+      대화 중에 하신 말씀의 낱말로는 재지 않습니다 — 지난 일을 이야기하시며 쓰신
+      '불안 · 불편' 이 오늘 기분으로 읽히면 크게 잘못 보기 때문입니다.
+    </p>
+    <p class="feel-sum" id="feelSummary">불러오는 중…</p>
+    <ul class="care-facts" id="feelFacts"></ul>
+    <div class="feel-bars" id="feelBars"></div>
+  </div>
+
   <!-- 건강관리 이야기에서 남은 기록 (lib/care-store.js) -->
   <style>
     .care-h { font-size: calc(var(--base) * .9); margin: 18px 0 8px; }
@@ -725,6 +748,44 @@ async function loadLog() {
   }).join('');
 }
 
+/* ---- 대화를 마치며 고르신 표정 (lib/termination.js) ----------------
+   어르신을 평가하는 점수가 아니다. 마치실 때 마음이 어떠셨는지
+   가족과 돌보는 분이 가늠하시도록 돕는 것이다. */
+
+async function loadFeel() {
+  let out;
+  try {
+    out = await fetch('/api/sessions/trend' + Q).then((r) => r.json());
+  } catch {
+    return;
+  }
+  const d = out.trend || {};
+  $('feelSummary').textContent = d.executive_summary || '';
+  $('feelCount').textContent = d.total_sessions ? d.total_sessions + '회' : '';
+
+  if (!d.total_sessions) {
+    $('feelFacts').innerHTML = '';
+    $('feelBars').innerHTML = '';
+    return;
+  }
+
+  const point = (n) => n.toFixed(2) + '점';
+  $('feelFacts').innerHTML = [
+    careLine("'편안해요' 고르신 비율", d.comfortable_ratio_percent.toFixed(1) + '%'
+      + ' (' + d.total_sessions + '회 가운데 ' + d.comfortable_count + '회)'),
+    careLine('초기 세션 평균', point(d.early_session_avg_score)),
+    careLine('최근 세션 평균', point(d.late_session_avg_score)),
+    careLine('변화', (d.score_improvement > 0 ? '+' : '') + point(d.score_improvement)),
+  ].join('');
+
+  /* 막대 하나가 회기 하나다. 오래된 것이 왼쪽 */
+  $('feelBars').innerHTML = (d.recent || []).map((r) => {
+    const h = Math.round(12 + (r.score / 3) * 56);
+    return '<i class="s' + r.score + '" style="height:' + h + 'px"'
+      + ' title="' + esc(WHEN(r.at) + ' ' + r.emoji) + '"></i>';
+  }).join('');
+}
+
 /* ---- 오늘 돌봄 기록 (건강관리 이야기에서 남은 것) ----------------
    숫자로 평가하려는 것이 아니다. 무엇을 함께 살펴야 할지 알아보기 위한 것이다. */
 
@@ -816,6 +877,7 @@ loadProfile();
 loadRank();
 loadThemes();
 loadLog();
+loadFeel();
 loadCare();
 </script>
 </body>
