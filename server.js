@@ -25,13 +25,16 @@ import {
 } from './lib/care-rules.js';
 import { ThreadStore } from './lib/thread-store.js';
 import { mountThreadRoutes } from './lib/thread-api.js';
-import { isStopRequest, STOP_RESPONSE, hardViolation } from './lib/recall-prompt.js';
+/* 회상 대화 — 규칙은 통합 시스템 프롬프트 한 파일이 가지고 있다 (prompts/recall-system.txt).
+   코드는 질문 횟수와 연속 질문만 세어 알려 주고, 출력 점검 몇 가지만 거든다. */
+import {
+  isStopRequest, STOP_RESPONSE, hardViolation, recallState,
+  buildRecallPrompt, tidyRecallReply,
+} from './lib/recall-prompt.js';
 /* 대화 종료 · 표정 측정 · 정서 추세 (전달 패키지 v2.4) */
 import {
   TERMINATION_UTTERANCE, TERMINATION_UI_ACTION, EMOTION_CHOICES, EMOTION_RATINGS, THANKS,
 } from './lib/termination.js';
-import { recallPlan, buildRecallPrompt, tidyRecallReply, recallInfo } from './lib/recall-chat.js';
-import { summaryCard } from './lib/recall-flow.js';
 import { placeName, GEOCODE_ON } from './lib/geocode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -772,7 +775,6 @@ app.post('/api/chat', async (req, res) => {
   let hasPhoto = false;       // 사진이 걸려 있는가 (모델이 보는지와는 별개)
   let turnCue = null;         // 이번에 건넬 수 있는 단서 한 가지 (모델에게 보여 준 것과 같다)
   let recallMemory = null;    // 지금 함께 보는 사진 (질문지 질문을 고를 때 쓴다)
-  let recallFacts = null;     // 그 사진에 대해 확인된 사실 (단서 사다리에서 쓴다)
   if (req.body?.memory_id) {
     try {
       const memory = await memories.get(String(req.body.memory_id));
@@ -782,8 +784,8 @@ app.post('/api/chat', async (req, res) => {
         recallMemory = memory;
         if (VISION && hasPhoto) photoUrl = await photos.dataUrl(memory.photo.file);
         const facts = memories.facts(memory);
-        recallFacts = facts;
-        /* 회상 챗봇은 단서를 사다리 한 곳에서만 건넨다 (lib/recall-flow.js) */
+        /* 회상 대화는 단서를 코드가 고르지 않는다. 사진에 실제로 보이는 것과 촬영 정보
+           가운데 무엇을 건넬지는 통합 프롬프트 15번이 정한다. */
         memoryContext = buildMemoryContext(memory, facts, Boolean(photoUrl), history,
           { withCue: !recallBot });
         if (photoUrl) memoryContext += buildVisionRules();
@@ -839,8 +841,6 @@ app.post('/api/chat', async (req, res) => {
       userState: 'WANTS_CHANGE', responseMode: 'BACKCHANNEL', askQuestion: false,
       shouldClose: false, topicDistress: false, userReportedEmotion: [], pendingClaims: [],
       photoAction: 'stop', careAsk: null, goal: null, bot: botMode,
-      /* 마칠 때는 오늘 떠올린 기억을 정해진 꼴로 정리해 드린다 (회의 피드백) */
-      summary: recallBot ? summaryCard(trimmed) : null,
     });
   }
   /* 사진 회상 중 이야기가 멈추신 차례인가 — "그랬지 뭐", "응" 처럼 짧게 맺으셨고,
@@ -851,7 +851,9 @@ app.post('/api/chat', async (req, res) => {
      그 밖의 대화는 전처럼 질문을 연달아 하지 않는다. */
   /* 이야기를 이어 갈 질문지 질문 — 지금 이야기와 사진에 맞는 것 가운데 무작위로 셋 (lib/recall-questions.js).
      공감만 하고 대화가 멈춘다는 피드백이 있어, 이야기하시는 차례마다 이 가운데 하나로 이어 간다. */
-  const questionnaire = recall && hasPhoto && !closing
+  /* 질문지 질문은 건강관리 이야기에서만 쓴다.
+     회상 대화의 질문은 통합 프롬프트 12번(후속 질문 선택 방법)이 고른다. */
+  const questionnaire = recall && !recallBot && hasPhoto && !closing
     ? pickQuestions(questionContext({
       history, lastUserText, analysis: recallMemory?.analysis, importance: recallMemory?.importance,
     }), history)
@@ -880,41 +882,18 @@ app.post('/api/chat', async (req, res) => {
     console.warn('[chat] 돌봄 기록을 읽지 못했습니다', err.message);
   }
 
-  /* 회상치료 챗봇은 이번 차례에 무엇을 할지부터 정한다 —
-     여섯 단계 가운데 어디를 여쭐지, 기억이 안 나시면 어떤 단서를 건넬지 (lib/recall-chat.js) */
-  const plan = recallBot
-    ? recallPlan({
-      history: trimmed,
-      lastUserText,
-      analysis: recallMemory?.analysis,
-      memory: recallMemory,
-      facts: recallFacts,
-      cannotRecall: CANNOT_RECALL.test(lastUserText),
-    })
-    : null;
-
-  /* 단서를 건네는 차례는 답이 정해져 있다 — 모델을 부르지 않는다.
-     ("그만할래" 와 같다. 기다림과 값이 줄고, 모델이 단서를 바꿔 말할 여지도 없어진다) */
-  if (plan && plan.mode === 'cue' && plan.cue) {
-    return res.json({
-      reply: plan.cue.line, emotion: 'thinking', gesture: 'tilt', mode: 'talk',
-      userState: 'CANNOT_RECALL', responseMode: 'OFFER_CUE', askQuestion: true,
-      shouldClose: closing, topicDistress: false, userReportedEmotion: [], pendingClaims: [],
-      photoAction: 'none', careAsk: null, goal: null, bot: botMode,
-      recall: recallInfo(plan, plan.cue.line), summary: null,
-    });
-  }
+  /* 회상 대화의 지금 상태 — 질문 횟수와 연속 질문 (문서 26번).
+     무엇을 여쭐지 · 어떤 단서를 건넬지는 문서가 정한다 (12번 · 15번). */
+  const recallNow = recallBot ? recallState(trimmed) : null;
 
   const systemPrompt = recallBot
     ? buildRecallPrompt({
       character: pickCharacter(charId),
       memory: recallMemory,
-      analysis: recallMemory?.analysis,
       memoryContext,
-      facts: recallFacts,
       history: trimmed,
-      lastUserText,
-      plan,
+      material: photoMaterial(recallMemory?.analysis, trimmed),
+      state: recallNow,
     })
     : buildSystemPrompt(
       charId,
@@ -1028,24 +1007,18 @@ app.post('/api/chat', async (req, res) => {
        · 이야기가 멈추셨는데 여쭙지 않은 답 — 열린 질문 하나를 붙인다 (④). */
     const hard = parsed.response_mode === 'SAFETY_FLOW' || parsed.response_mode === 'HEALTH_CARE';
 
-    /* 회상치료 챗봇 — 팀 프롬프트의 규칙으로 다듬는다.
-       두 문장까지 · 질문 하나까지 · 사진 한 장에 다섯 번까지 · 잇달아 두 번 물었으면 쉬기.
-       (app.py 가 들고 있던 상태 관리를 대화 기록에서 다시 세어 옮긴 것이다) */
-    let recallOut = null;
+    /* 회상 대화 — 문서 28번의 점검 가운데 코드로 지킬 수 있는 것만 거든다.
+       두 문장까지 · 질문 하나까지 · 다섯 번을 넘기지 않기 · 짐작한 사람 빼기. */
     if (recallBot && mode !== 'story' && !hard) {
       const plain = safeReflection(parsed.reflection, userSaid) || plainReaction(trimmed);
-      const tidied = tidyRecallReply(reply, {
-        history: trimmed, userSaid, turnCue, plain, mayAsk: plan.state.mayAsk,
-        /* 단서를 건네는 차례에는 사다리가 정한 문장 그대로 나간다 */
-        cue: plan.mode === 'cue' && plan.cue ? plan.cue.line : '',
-      });
+      const tidied = tidyRecallReply(reply, { state: recallNow, userSaid, plain });
       if (tidied !== reply) {
-        console.warn('[chat] 회상 답을 다듬었습니다.', { mode: plan.mode, area: plan.area });
+        console.warn('[chat] 회상 답을 다듬었습니다.',
+          { asked: recallNow.questionCount, consecutive: recallNow.consecutive });
         reply = tidied;
       }
-      const broke = hardViolation(reply, plan.state);
+      const broke = hardViolation(reply, recallNow);
       if (broke) console.warn('[chat] 회상 규칙 위반이 남았습니다 —', broke);
-      recallOut = recallInfo(plan, reply);
     }
 
     if (recall && !recallBot && mode !== 'story' && !hard) {
@@ -1187,8 +1160,6 @@ app.post('/api/chat', async (req, res) => {
       /* 화면이 띄울 카드 — 아프다고 하시면 어디가 얼마나 아프신지 여쭙는다 */
       careAsk: careNote.ask,
       goal: goalSaved,
-      /* 회상치료 챗봇 — 이번에 여쭌 단계와 남은 질문 횟수 (화면이 보여 준다) */
-      recall: recallOut,
       bot: botMode,
     });
   } catch (err) {

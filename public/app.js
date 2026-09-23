@@ -98,8 +98,7 @@ const state = {
   bot: BOT,
   // 옆 서랍에 남는 지금 대화 (들어오면 늘 새 대화다)
   threadId: null,
-  // 오늘 떠올린 기억 카드 (저장하실지 여쭐 때 쓴다)
-  summary: null,
+  // 마치며 기분을 여쭙는 중인 회기 (아래 endingSessionId 와 짝이다)
   // 마치며 기분을 여쭙는 중인 회기. 사진이 접히면 sessionId 가 비므로 따로 붙든다
   endingSessionId: null,
 };
@@ -224,7 +223,7 @@ function loadHistory() {
 async function applyReply(data) {
   /* 마치는 차례라면(그만하자고 하셨다) 지금 기분을 여쭐 수 있게 회기 번호를 붙들어 둔다.
      말이 끝나면 사진이 접히면서 state.sessionId 가 비워진다 (closeSession). */
-  if (data.summary && state.sessionId) state.endingSessionId = state.sessionId;
+  if (data.photoAction === 'stop' && state.sessionId) state.endingSessionId = state.sessionId;
   state.history.push({ role: 'assistant', content: data.reply });
   saveHistory();
   noteThread('assistant', data.reply);   // 옆 서랍에 남긴다
@@ -260,8 +259,6 @@ async function applyReply(data) {
 
   await speak(data.reply, data.emotion, data.mode);
 
-  /* 회상 대화를 마칠 때 — 오늘 떠올린 기억을 정해진 꼴로 보여 드린다 */
-  if (data.summary && (data.summary.lines || []).length) showSummary(data.summary);
 
   /* 말이 끝난 뒤에 돌봄 카드를 띄운다. 말하는 중에 띄우면 듣다 말고 누르신다 */
   afterCare(data);
@@ -1348,7 +1345,7 @@ async function openRecall(memory, { fresh = false } = {}) {
 
   /* 첫 말 — 사진에 보이는 것을 한두 가지 짚고, 어떤 사진이든 늘 같은 첫 물음으로 연다.
      (public/recall-opening.js — 모델에게 맡기지 않는다. 첫 말부터 짐작이 섞이면 바로잡기 어렵다) */
-  const line = openingLine(memory.analysis);
+  const line = openingLine();
   ui.subtitle.textContent = line;
   addMessage('bot', line);
   state.history.push({ role: 'assistant', content: line });
@@ -1442,6 +1439,9 @@ async function stopMemoryTalk() {
     if (!asked) hideKeep();
     showMemory(null);
     ui.memoryPhoto.removeAttribute('src');
+    /* 오늘 이야기를 여기서 마치는 것이므로 지금 기분을 표정으로 여쭙는다
+       (종료 명세서 — 말로 대답하시라 하지 않는다) */
+    if (BOT === 'recall' && state.endingSessionId) showFeel();
   } finally {
     wrappingUp = false;
   }
@@ -1822,54 +1822,6 @@ async function showTodayReport() {
     note: bits.join('\n'),
     acts: [{ label: '닫기', primary: true, onClick: () => hideCare() }],
   });
-}
-
-/**
- * 오늘 떠올린 기억 — 회상 대화를 마칠 때 정해진 꼴로 보여 드린다 (회의 피드백).
- * 잘했다 못했다 평가하지 않고, 실제로 하신 말씀만 담는다. 저장은 직접 정하신다.
- */
-function showSummary(summary) {
-  const text = (summary.lines || []).join('\n');
-  if (!text) return;
-  state.summary = summary;   // 저장하시겠다고 하면 단계별 결과도 함께 남긴다
-  addMessage('bot', `${summary.title}\n${text}`);
-  showCare({
-    say: false,
-    question: summary.title,
-    note: `${text}\n\n${summary.ask}\n${summary.note}`,
-    acts: [
-      { label: '추억 저장하기', primary: true, onClick: () => keepSummary(true) },
-      { label: '저장하지 않기', onClick: () => keepSummary(false) },
-    ],
-  });
-}
-
-async function keepSummary(keep) {
-  hideCare();
-  const summary = state.summary;
-  state.summary = null;
-
-  if (state.pending && state.pending.length) await decideKeep(keep);
-  else toast(keep ? '오늘 이야기를 남겨 두었어요' : '남기지 않았어요');
-
-  /* 어느 단계가 떠올랐고 어느 단계가 아직인지 적어 둔다.
-     다음에 같은 사진을 볼 때 그쪽을 천천히 다시 보기 위해서다 (시험 점수가 아니다) */
-  if (keep && summary && state.memory) {
-    const status = {};
-    for (const it of summary.items || []) status[it.area] = it.status;
-    threadApi(`/api/memories/${state.memory.memory_id}/recall`, {
-      method: 'POST', body: { recall_status: status },
-    });
-  }
-  if (keep) {
-    careApi('/api/care/summary', {
-      topics: state.memory ? [state.memory.title || '사진 이야기'] : [],
-    });
-  }
-
-  /* 오늘 이야기를 여기서 마치는 것이므로, 지금 기분도 표정으로 여쭙는다
-     (전달 패키지 2-나 — 말로 대답하시라 하지 않는다) */
-  if (BOT === 'recall' && state.endingSessionId) showFeel();
 }
 
 /* --- 언제 띄울까 ------------------------------------------------ */
