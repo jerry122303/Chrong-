@@ -25,6 +25,8 @@ const ui = {
   clear: $('btn-clear'), suggest: $('suggest'), toast: $('toast'),
   swap: $('btn-swap'), picker: $('picker'), cancel: $('btn-cancel'),
   startLabel: $('start-label'), brandName: document.querySelector('.brand-name'),
+  // 머리말의 [친구 바꾸기] · 말동무 카드의 이름표 · 머리글 제목
+  swapTop: $('btn-swap-top'), companionName: $('companion-name'), heroTitle: $('hero-title'),
   stage: document.querySelector('.stage'),
   recall: $('btn-recall'), recallLabel: $('recall-label'),
   memory: $('memory'), memoryPhoto: $('memory-photo'), memoryTitle: $('memory-title'),
@@ -110,6 +112,13 @@ const charName = () => (CHARACTERS[state.character] || CHARACTERS[DEFAULT_CHARAC
  * 이름 뒤에 붙는 주격 조사를 받침에 맞춰 고른다.
  * 준호(받침 없음) → "준호가", 서연(받침 있음) → "서연이", 초롱이 → "초롱이가"
  */
+/** 이름 뒤의 '와 · 과' (초롱이와 · 서연과) */
+function withAnd(name) {
+  const code = name.charCodeAt(name.length - 1) - 0xAC00;
+  const hasFinal = code >= 0 && code <= 11171 && code % 28 !== 0;
+  return name + (hasFinal ? '과' : '와');
+}
+
 function subject(name) {
   const code = name.charCodeAt(name.length - 1) - 0xAC00;
   const hasFinal = code >= 0 && code <= 11171 && code % 28 !== 0;
@@ -2300,7 +2309,14 @@ function applyCharacter(id) {
 
   const def = CHARACTERS[state.character];
   avatar.setCharacter(state.character);
-  if (ui.brandName) ui.brandName.textContent = def.name;
+  /* 머리말의 이름은 서비스 이름(초롱이)이라 그대로 두고,
+     말동무 이름은 카드와 머리글에 보여 드린다 (온봄 화면의 짜임) */
+  if (ui.companionName) ui.companionName.textContent = def.name;
+  if (ui.heroTitle) {
+    ui.heroTitle.textContent = BOT === 'recall'
+      ? `${withAnd(def.name)} 사진 이야기`
+      : `${withAnd(def.name)} 이야기 나누기`;
+  }
   document.title = def.name + ' - 말동무 친구';
 }
 
@@ -2422,6 +2438,7 @@ function init() {
   buildPicker();
 
   on(ui.swap, 'click', openChooser);
+  on(ui.swapTop, 'click', openChooser);
   on(ui.cancel, 'click', closeChooser);
 
   /* 말동무 고르는 화면은 [친구 바꾸기] 를 누르실 때만 열린다.

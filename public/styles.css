@@ -4,47 +4,51 @@
  *        얇은 테두리 · 절제된 색 · 넉넉한 여백 · 또렷한 대비
  * ===================================================================== */
 
+/* 색과 모서리는 온봄 화면의 값을 그대로 쓴다 */
 :root {
-  --bg:         #F4F3EF;
+  --bg:         #F5F8F8;   /* background */
   --card:       #FFFFFF;
 
-  --ink:        #22292C;
-  --ink-2:      #57625D;
-  --ink-3:      #8B948F;
+  --ink:        #243C41;   /* foreground */
+  --ink-2:      #536B70;   /* muted-foreground */
+  --ink-3:      #7C9094;
 
-  --line:       #E4E2DB;
-  --line-2:     #CFCCC3;
+  --line:       #D8E4E4;   /* border */
+  --line-2:     #CDDEDB;
 
-  --brand:      #2C6E49;
-  --brand-2:    #235A3B;
-  --brand-soft: #EFF5F1;
-  --brand-line: #C6DCCE;
+  --brand:      #12665F;   /* primary */
+  --brand-2:    #0E534D;
+  --brand-soft: #E6F2EF;   /* accent */
+  --brand-line: #BCD9D3;
 
-  --user-soft:  #FAF5EA;
-  --user-line:  #E6D9BE;
-  --user-ink:   #7A5E24;
+  --muted:      #E7EFEF;
+  --secondary:  #EEF3ED;
 
-  --danger:     #A8352F;
-  --danger-soft:#FBEEED;
-  --info:       #2A5C87;
-  --info-soft:  #EFF4F8;
+  --user-soft:  #12665F;   /* 어르신 말풍선은 짙은 청록 바탕에 흰 글씨 */
+  --user-line:  #12665F;
+  --user-ink:   #FFFFFF;
 
-  --r-card:     14px;
+  --danger:     #A42E2E;
+  --danger-soft:#FBEFEF;
+  --info:       #15847A;
+  --info-soft:  #E6F2EF;
+
+  --r-card:     20px;
   --r-btn:      10px;
-  --shadow:     0 1px 2px rgba(30, 40, 35, .05), 0 4px 14px rgba(30, 40, 35, .05);
+  --shadow:     0 4px 14px rgba(23, 60, 66, .04);
 }
 
 /* --- 글자 크기 3단계 --- */
-body.fs-1 { --base: 19px; }
-body.fs-2 { --base: 23px; }
-body.fs-3 { --base: 28px; }
+body.fs-1 { --base: 18px; }   /* 기본 */
+body.fs-2 { --base: 22px; }   /* 크게 */
+body.fs-3 { --base: 27px; }   /* 아주 크게 */
 
 * { box-sizing: border-box; }
 
 html, body { margin: 0; padding: 0; height: 100%; }
 
 body {
-  font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
   font-size: var(--base);
   line-height: 1.6;
   color: var(--ink);
@@ -1527,4 +1531,567 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
   color: var(--brand);
   padding: 18px 10px;
   line-height: 1.4;
+}
+
+/* =====================================================================
+ *  온봄 화면 결 — 흰 카드 · 짙은 청록 · 넉넉한 여백
+ *
+ *  레퍼런스 화면(onbom-senior-companion)의 짜임을 그대로 옮겼다.
+ *  위에서 정한 것과 어긋나는 값은 여기가 이긴다 (뒤에 오는 규칙이 이긴다).
+ * ===================================================================== */
+
+/* --- 페이지가 통째로 스크롤된다 (앱 틀이 아니라 웹 페이지처럼) --- */
+html, body { height: auto; overflow: visible; }
+body {
+  display: block;
+  font-size: var(--base);
+  line-height: 1.6;
+  background: var(--bg);
+}
+
+/* =================== 상단 바 =================== */
+.topbar {
+  position: sticky; top: 0; z-index: 40;
+  height: auto; min-height: 88px;
+  padding: 10px max(4%, 20px);
+  gap: 14px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+.brand { gap: 12px; color: var(--brand); }
+.brand-mark {
+  width: 34px; height: 34px;
+  font-size: inherit;
+}
+.brand-mark svg {
+  fill: none; stroke: currentColor;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+.brand-name {
+  font-size: 1.8rem; font-weight: 700;
+  letter-spacing: -1px;
+  color: var(--brand);
+}
+.brand-sub {
+  margin-left: 2px;
+  color: var(--ink-2);
+  font-size: 1rem;
+  white-space: nowrap;
+}
+.controls { justify-content: flex-end; gap: 8px; }
+.ctrl {
+  min-height: 44px;
+  padding: 8px 13px;
+  border-radius: 30px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: .88rem;
+  font-weight: 500;
+}
+.ctrl:hover { border-color: var(--brand); color: var(--brand); }
+.ctrl[aria-pressed="true"] {
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+  color: var(--brand);
+}
+.ctrl-outline {
+  border-radius: 10px;
+  border-color: var(--brand);
+  color: var(--brand);
+  font-weight: 650;
+}
+.ctrl-end {
+  border-radius: 10px;
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: 650;
+}
+.ctrl-end:hover { background: var(--brand-2); border-color: var(--brand-2); color: #fff; }
+
+/* =================== 본문 틀 =================== */
+.workspace {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 26px 36px 10px;
+}
+.workspace-heading {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.workspace-heading h1 {
+  margin: 6px 0 0;
+  font-size: 2.15rem; font-weight: 700;
+  letter-spacing: -1px; line-height: 1.4;
+}
+.eyebrow { color: var(--brand); font-size: .95rem; font-weight: 600; }
+.text-button {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 44px; padding: 9px 0;
+  font-family: inherit; font-size: 1rem; font-weight: 600;
+  color: var(--brand);
+  background: none; border: 0; cursor: pointer;
+}
+.text-button:hover { color: var(--brand-2); }
+.text-button { white-space: nowrap; }
+
+.main.conversation-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, .85fr) minmax(0, 1.15fr);
+  gap: 24px;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+}
+
+/* =================== 말동무 카드 =================== */
+.stage.companion {
+  position: relative;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: none;
+  overflow: hidden;
+}
+.companion-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  padding: 18px 22px;
+  font-size: .9rem;
+  color: var(--ink-2);
+}
+.companion-name { color: var(--brand); font-size: 1.125rem; font-weight: 700; }
+.stage .status { background: none; border: 0; padding: 0; font-size: .9rem; color: var(--ink-2); }
+
+.avatar {
+  flex: 0 0 auto;
+  height: 330px;
+  background: #FBF6ED;
+}
+.companion-caption { padding: 18px 24px; text-align: center; }
+.companion-line { margin: 0 0 6px; font-size: 1.25rem; font-weight: 700; }
+.companion-sub { margin: 0; color: var(--ink-2); font-size: 1rem; }
+.stage .subtitle {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--ink);
+  min-height: 0;
+}
+.stage-bar.voice-controls {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: auto;
+  padding: 0 20px 22px;
+}
+.voice-controls .mic,
+.voice-controls .btn-replay {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 1rem; font-weight: 650;
+  width: auto;
+}
+.voice-controls .mic {
+  background: var(--brand); border: 1px solid var(--brand); color: #fff;
+  box-shadow: none;
+}
+.voice-controls .mic:hover { filter: brightness(.95); }
+.voice-controls .btn-replay {
+  position: static;
+  background: var(--card); border: 1px solid var(--line); color: var(--brand);
+}
+.voice-controls .btn-replay:hover { border-color: var(--brand); }
+.voice-controls .mic-level { display: none; }
+
+/* 말동무 카드 안에 뜨는 칸들 (사진 · 기억 · 표정 · 돌봄 · 인지활동) */
+.companion .memory,
+.companion .keep,
+.companion .feel,
+.companion .rate,
+.companion .care,
+.companion .cog {
+  margin: 0 20px 16px;
+  width: auto;
+  border-radius: 14px;
+}
+
+/* =================== 대화 카드 =================== */
+.chat.conversation {
+  display: flex; flex-direction: column;
+  min-width: 0;
+  max-height: 680px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: none;
+  overflow: hidden;
+}
+.conversation-title {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 10px;
+}
+.chat-title {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0; padding: 0;
+  border: 0;
+  font-size: 1.125rem; font-weight: 700;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.demo-note {
+  margin: 0;
+  padding: 0 22px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: .875rem;
+}
+.log.messages {
+  flex: 1 1 0;
+  min-height: 170px;
+  display: block;
+  padding: 22px;
+  gap: 0;
+}
+.log .msg {
+  display: block;
+  max-width: 92%;
+  margin: 0 0 15px;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 14px;
+  font-size: 1.125rem;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.log .msg.bot { background: var(--brand-soft); color: var(--ink); }
+.log .msg.me {
+  margin-left: auto;
+  background: var(--brand);
+  color: #fff;
+}
+.log .msg-name {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--brand);
+  font-size: .85rem; font-weight: 700;
+}
+.log .msg.me .msg-name { color: inherit; opacity: .85; }
+.log .msg.sys {
+  background: var(--muted); color: var(--ink-2);
+  font-size: .95rem;
+}
+
+/* 자주 쓰는 단추 — 둥근 알약 꼴 */
+.quick-replies {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 10px 22px;
+}
+.quick-replies .btn-recall,
+.quick-replies .btn-attach {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 42px;
+  padding: 8px 15px;
+  border-radius: 30px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--brand);
+  font-size: .9rem; font-weight: 600;
+}
+.quick-replies .btn-recall:hover,
+.quick-replies .btn-attach:hover { border-color: var(--brand); }
+.quick-replies .btn-recall[aria-pressed="true"] {
+  background: var(--brand-soft); border-color: var(--brand-line);
+}
+
+/* =================== 글로 쓰기 =================== */
+.composer {
+  position: static;
+  padding: 15px 20px 20px;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  box-shadow: none;
+}
+.composer-label {
+  display: flex; align-items: center; gap: 7px;
+  margin-bottom: 9px;
+  font-size: 1rem; font-weight: 600;
+}
+.composer .input-row { display: flex; gap: 10px; align-items: stretch; }
+.composer .type-box {
+  flex: 1 1 0; min-width: 0;
+  padding: 0; border: 0; background: none; box-shadow: none;
+}
+.composer .input {
+  width: 100%;
+  min-height: 68px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 1rem;
+  color: var(--ink);
+}
+.composer .input:focus { outline: none; border-color: var(--brand); }
+.composer .btn-send {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px;
+  min-height: 68px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: #fff;
+  font-size: 1rem; font-weight: 650;
+}
+.composer .btn-send:hover { filter: brightness(.95); }
+
+/* =================== 오늘도 나를 돌보는 시간 =================== */
+.daily-tools { margin-top: 32px; }
+.section-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.section-heading h2 { margin: 0; font-size: 1.3rem; font-weight: 700; }
+.section-heading > span { color: var(--ink-2); font-size: .95rem; }
+
+.suggest.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+.tool-card {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 7px;
+  min-height: 0;
+  padding: 20px 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  text-align: left;
+  font-weight: 400;
+}
+.tool-card:hover { border-color: var(--brand); box-shadow: 0 4px 14px rgba(23, 60, 66, .04); }
+.tool-card > svg { width: 27px; height: 27px; margin-bottom: 8px; color: var(--brand); }
+.tool-card strong { font-size: 1rem; font-weight: 700; }
+.tool-card span { color: var(--ink-2); font-size: .85rem; line-height: 1.5; }
+
+.page-note {
+  margin: 22px 0 0;
+  color: var(--ink-3);
+  font-size: .9rem;
+}
+.page-foot {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 26px;
+  color: var(--ink-2);
+  font-size: .9rem;
+}
+
+/* =================== 카드 · 단추 결 맞추기 =================== */
+.care, .cog, .keep, .rate, .feel, .settings-box, .memory {
+  border-color: var(--line);
+  box-shadow: none;
+}
+.care-primary, .keep-yes, .set-close, .btn-start {
+  background: var(--brand); border-color: var(--brand); color: #fff;
+}
+.care-primary:hover, .keep-yes:hover, .set-close:hover, .btn-start:hover {
+  background: var(--brand-2); border-color: var(--brand-2); color: #fff;
+}
+
+/* =================== 말동무 고르기 화면 =================== */
+.splash { background: var(--bg); }
+.splash-inner { text-align: left; max-width: 980px; }
+.splash-title {
+  margin: 9px 0 10px;
+  font-size: 2.15rem; font-weight: 700; letter-spacing: -1px;
+}
+.splash-desc { color: var(--ink-2); font-size: 1.05rem; }
+.picker { justify-content: flex-start; gap: 18px; }
+.pick {
+  width: min(32vw, 260px);
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: none;
+}
+.pick[aria-checked="true"] {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(20, 133, 121, .08);
+}
+.btn-start {
+  width: 100%;
+  min-height: 62px;
+  margin-top: 24px;
+  border-radius: 12px;
+  font-size: 1.125rem; font-weight: 700;
+  box-shadow: none;
+}
+.splash-hint { color: var(--ink-2); font-size: .95rem; }
+
+/* =================== 좁은 화면 =================== */
+@media (max-width: 1080px) {
+  .main.conversation-layout { grid-template-columns: 1fr; }
+  .suggest.tool-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .chat.conversation { max-height: none; }
+}
+@media (max-width: 720px) {
+  .topbar { height: auto; padding: 12px 16px; flex-wrap: wrap; }
+  .workspace { padding: 18px 16px 8px; }
+  .workspace-heading { flex-wrap: wrap; gap: 4px 16px; }
+  .workspace-heading h1 { font-size: 1.7rem; }
+  .suggest.tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brand-sub { display: none; }
+}
+
+/* =================== 시작 화면 (무엇을 함께 할까요) =================== */
+.intro { margin-bottom: 30px; }
+.intro h1 {
+  margin: 9px 0 10px;
+  font-size: 2.15rem; font-weight: 700; letter-spacing: -1px;
+}
+.intro p { margin: 0; color: var(--ink-2); font-size: 1.05rem; }
+
+.pick-title {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 18px;
+  font-size: 1.125rem; font-weight: 700;
+}
+.step {
+  display: inline-grid; place-items: center;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 1rem; font-weight: 700;
+}
+
+.choose-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+}
+.choose-card {
+  display: flex; flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: none;
+  overflow: hidden;
+  transition: border-color .15s, transform .15s;
+}
+.choose-card:hover { border-color: var(--brand); transform: translateY(-3px); }
+.choose-art {
+  display: grid; place-items: center;
+  height: 210px;
+  background: #F7F3E9;
+  color: var(--brand);
+}
+.choose-art svg { width: 120px; height: 120px; }
+.choose-body { display: block; padding: 20px 22px 24px; text-align: left; }
+.choose-name {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 1.4rem; font-weight: 700;
+}
+.choose-what {
+  display: block;
+  color: var(--ink-2);
+  font-size: .95rem; line-height: 1.6;
+}
+.choose-go {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 16px;
+  color: var(--brand);
+  font-size: 1rem; font-weight: 650;
+}
+
+.gentle-note {
+  display: flex; align-items: flex-start; gap: 14px;
+  margin-top: 24px;
+  padding: 19px 24px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--brand);
+}
+.gentle-note .ico { width: 24px; height: 24px; margin-top: 2px; }
+.gentle-note p { margin: 0; font-size: 1rem; line-height: 1.7; }
+.gentle-note strong { color: var(--ink-2); font-weight: 400; }
+.gentle-note a { color: var(--brand); font-weight: 700; }
+
+@media (max-width: 860px) {
+  .choose-cards { grid-template-columns: 1fr; }
+  .choose-art { height: 170px; }
+}
+
+/* =================== 사진을 함께 볼 때 (말동무 카드 안) ===================
+   예전 화면은 높이가 정해진 한 화면이라 사진이 '남는 세로'를 가져갔다.
+   이제 페이지가 스크롤되므로 남는 세로가 없다 — 사진에 제 높이를 주고,
+   아바타는 사진에 자리를 내주며 작아진다 (사진이 이야기의 중심). */
+.companion.with-memory {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  grid-template-areas: none;
+}
+.companion.with-memory .memory {
+  flex: 0 0 auto;
+  height: auto;
+  margin: 0 20px 16px;
+  gap: 10px;
+}
+.companion .memory-photo {
+  flex: 0 0 auto;
+  width: 100%;
+  height: 320px;
+  min-height: 0;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #FBF6ED;
+}
+.companion .memory-title { font-size: 1.125rem; }
+.companion .memory-btn {
+  min-height: 42px;
+  padding: 8px 15px;
+  border-radius: 30px;
+  font-size: .9rem;
+  color: var(--brand);
+}
+.companion.with-memory .avatar {
+  flex: 0 0 auto;
+  height: 140px;
+  min-height: 0;
+}
+.companion.with-memory .companion-caption { padding: 12px 24px; }
+.companion.with-memory .companion-line { font-size: 1.1rem; }
+
+/* 별점을 고르시는 동안에는 사진을 조금 줄이고 고르는 칸을 먼저 보여 드린다 */
+.companion.rating .memory-photo { height: 220px; }
+.companion.rating .avatar,
+.companion.rating .companion-caption { display: none; }
+
+@media (max-width: 720px) {
+  .companion .memory-photo { height: 240px; }
+  .companion.with-memory .avatar { height: 110px; }
 }

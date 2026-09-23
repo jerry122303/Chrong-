@@ -3,15 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#F5F4F0" />
+  <meta name="theme-color" content="#F5F8F8" />
   <title>건강관리 이야기 — 초롱이</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦜</text></svg>" />
 </head>
-<body class="fs-2" data-bot="health">
+<body class="fs-1" data-bot="health">
 
   <!-- 위기 신호를 알아들었을 때 — 말로만 드리지 않고 번호가 눈에 보이게 띄운다.
        번호는 lib/care-rules.js 의 CRISIS_LINE 과 같은 것이다 (모델이 짓지 않는다) -->
@@ -31,7 +28,6 @@
   </div>
 
   <!-- ================= 지난 대화 서랍 ================= -->
-  <!-- 들어오면 늘 새 대화다. 서랍에서 고르시면 그때 이야기가 이어진다 -->
   <div id="scrim" class="scrim"></div>
   <aside id="drawer" class="drawer" aria-label="지난 대화">
     <div class="drawer-head">
@@ -42,17 +38,18 @@
     <div id="drawer-list" class="drawer-list" role="list"></div>
   </aside>
 
-  <!-- ================= 말동무 고르기 (친구 바꾸기를 누르면 열린다) ================= -->
+  <!-- ================= 말동무 고르기 ================= -->
   <div id="splash" class="splash" hidden>
     <div class="splash-inner">
-      <h1 class="splash-title">말동무를 <b>골라 주세요</b></h1>
-      <p class="splash-desc">마음에 드는 친구를 누르시면 이야기를 이어갑니다.</p>
+      <span class="eyebrow">다시 만나 반가워요</span>
+      <h1 class="splash-title">말동무를 골라 주세요</h1>
+      <p class="splash-desc">지난번 고르신 친구를 기억하고 있어요. 원하시면 바꿀 수 있어요.</p>
 
       <div class="picker" id="picker" role="radiogroup" aria-label="말동무 고르기"></div>
 
       <button id="btn-start" class="btn-start">
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke="none"/></svg>
         <span id="start-label">이 친구로 하기</span>
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13"/><path d="M13 6.5 18.5 12 13 17.5"/></svg>
       </button>
       <button id="btn-cancel" class="btn-cancel" type="button" hidden>그대로 두기</button>
       <p class="splash-hint">소리가 나오니 볼륨을 켜 주세요</p>
@@ -64,13 +61,13 @@
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32">
-          <path d="M6 7.5h20a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H14l-6 5v-5H6a3 3 0 0 1-3-3v-10a3 3 0 0 1 3-3z"
-                fill="currentColor" stroke="none"/>
-          <path d="M16 12.4c1.9 0 3.4 1.2 3.4 2.9 0 2.1-1.8 4-3.4 4.7-1.6-.7-3.4-2.6-3.4-4.7 0-1.7 1.5-2.9 3.4-2.9z"
-                fill="#FFFFFF" stroke="none"/>
+          <path d="M16 27v-8"/>
+          <path d="M16 19c0-5 3.5-9 9-9 0 5-3.5 9-9 9z"/>
+          <path d="M16 19c0-4.4-3.1-8-7.5-8 0 4.4 3.1 8 7.5 8z"/>
         </svg>
       </span>
-      <span class="brand-name">초롱이</span>
+      <strong class="brand-name">초롱이</strong>
+      <span class="brand-sub">나의 건강 동반자</span>
     </div>
 
     <nav class="controls" aria-label="설정">
@@ -89,7 +86,6 @@
         <span class="ctrl-label">인지치료</span>
       </button>
 
-      <!-- 사진 보며 옛이야기로 바로 건너간다 -->
       <button id="btn-other" class="ctrl" type="button">
         <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="3" y="5.5" width="18" height="14" rx="2.5"/>
@@ -106,7 +102,6 @@
         <span class="ctrl-label">소리<b id="sound-state">켜짐</b></span>
       </button>
 
-      <!-- 켜 두면 오늘 할 인지 활동을 하루 한 번 먼저 권합니다 -->
       <button id="btn-cogmode" class="ctrl" type="button" aria-pressed="true">
         <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 4.5a5 5 0 0 1 3 9v1.8H9V13.5a5 5 0 0 1 3-9z"/>
@@ -115,13 +110,12 @@
         <span class="ctrl-label">인지케어<b id="cogmode-state">켜짐</b></span>
       </button>
 
-      <!-- 글자 크기 · 천천히 대화 · 캐릭터 바꾸기는 설정 안에 모아 둔다 -->
-      <button id="btn-settings" class="ctrl" type="button">
+      <button id="btn-settings" class="ctrl ctrl-outline" type="button">
         <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="12" cy="12" r="3.2"/>
           <path d="M12 4.5v2M12 17.5v2M19.5 12h-2M6.5 12h-2M17.3 6.7l-1.4 1.4M8.1 15.9l-1.4 1.4M17.3 17.3l-1.4-1.4M8.1 8.1 6.7 6.7"/>
         </svg>
-        <span class="ctrl-label">설정</span>
+        <span class="ctrl-label">화면 설정</span>
       </button>
 
       <button id="btn-clear" class="ctrl" type="button">
@@ -134,126 +128,179 @@
   </header>
 
   <!-- ================= 본문 ================= -->
-  <main class="main">
+  <div class="workspace">
 
-    <section class="stage" aria-label="말동무 화면">
-      <div class="stage-glow" aria-hidden="true"></div>
-
-      <!-- 건강 돌봄 — 오늘 기분 · 아픈 곳 · 약 · 목표. 한 번에 하나만 여쭙는다 -->
-      <div id="care" class="care" hidden role="group" aria-labelledby="care-q">
-        <p id="care-q" class="care-q"></p>
-        <p id="care-note" class="care-note" hidden></p>
-        <div id="care-acts" class="care-acts"></div>
-        <button id="care-later" class="care-later" type="button">나중에 할게요</button>
+    <div class="workspace-heading">
+      <div>
+        <span class="eyebrow">오늘도, 함께하는 하루</span>
+        <h1 id="hero-title">초롱이와 이야기 나누기</h1>
       </div>
+      <button id="btn-swap-top" class="text-button" type="button">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 11.5a7.5 7.5 0 0 1 12.8-5.3"/><path d="M17.5 3.5V7H14"/>
+          <path d="M20 12.5a7.5 7.5 0 0 1-12.8 5.3"/><path d="M6.5 20.5V17H10"/>
+        </svg>
+        친구 바꾸기
+      </button>
+    </div>
 
-      <!-- 인지치료 — 회상 · 숫자 · 날짜 · 사진 네 가지 중 오늘 안 하신 것 하나씩 -->
-      <div id="cog" class="cog" hidden role="group" aria-labelledby="cog-title">
-        <p id="cog-title" class="cog-title">오늘의 인지 활동</p>
-        <p id="cog-say" class="cog-say"></p>
-        <div id="cog-acts" class="cog-acts"></div>
-        <button id="cog-close" class="care-later" type="button">대화로 돌아가기</button>
-      </div>
+    <main class="main conversation-layout">
 
-      <div id="avatar" class="avatar"></div>
-
-      <div class="stage-bar">
-        <div id="status" class="status status-idle">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span id="status-text">말씀해 주세요</span>
+      <section class="stage companion" aria-label="말동무 화면">
+        <div class="companion-top">
+          <span class="companion-name" id="companion-name">초롱이</span>
+          <div id="status" class="status status-idle">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="status-text">이야기할 준비가 됐어요</span>
+          </div>
         </div>
 
-        <button id="btn-replay" class="btn-replay" type="button" hidden>
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20.5 4v4.5H16"/>
+        <!-- 건강 돌봄 — 오늘 기분 · 아픈 곳 · 약 · 목표. 한 번에 하나만 여쭙는다 -->
+        <div id="care" class="care" hidden role="group" aria-labelledby="care-q">
+          <p id="care-q" class="care-q"></p>
+          <p id="care-note" class="care-note" hidden></p>
+          <div id="care-acts" class="care-acts"></div>
+          <button id="care-later" class="care-later" type="button">나중에 할게요</button>
+        </div>
+
+        <!-- 인지치료 — 회상 · 숫자 · 날짜 · 사진 네 가지 중 오늘 안 하신 것 하나씩 -->
+        <div id="cog" class="cog" hidden role="group" aria-labelledby="cog-title">
+          <p id="cog-title" class="cog-title">오늘의 인지 활동</p>
+          <p id="cog-say" class="cog-say"></p>
+          <div id="cog-acts" class="cog-acts"></div>
+          <button id="cog-close" class="care-later" type="button">대화로 돌아가기</button>
+        </div>
+
+        <div id="avatar" class="avatar"></div>
+
+        <div class="companion-caption">
+          <h2 class="companion-line">천천히 말씀해 주세요.</h2>
+          <p class="companion-sub">당신의 이야기를 기다리고 있어요.</p>
+          <!-- 자막은 화면에 보이지 않는다. 읽어 주는 기계(스크린 리더)를 위해 남겨 둔다 -->
+          <div id="subtitle" class="subtitle" role="status" aria-live="polite">
+            안녕하세요. 오늘 하루는 어떠셨어요?
+          </div>
+        </div>
+
+        <div class="stage-bar voice-controls">
+          <button id="btn-mic" class="mic" type="button" aria-label="말하기 버튼">
+            <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/>
+            </svg>
+            <span class="mic-label" id="mic-label">음성으로 말하기</span>
+            <span class="mic-level" id="mic-level" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          </button>
+
+          <button id="btn-replay" class="btn-replay" type="button" hidden>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20.5 4v4.5H16"/>
+            </svg>
+            답변 다시 듣기
+          </button>
+        </div>
+      </section>
+
+      <section class="chat conversation" aria-label="대화 내용">
+        <div class="conversation-title">
+          <h2 class="chat-title">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 12a8 8 0 0 1-8 8H5l-1 1v-4.4A8 8 0 1 1 20 12z"/>
+            </svg>
+            우리 대화
+          </h2>
+        </div>
+        <p class="demo-note">오늘 있었던 일을 편하게 들려주세요.</p>
+
+        <div id="log" class="log messages" role="log" aria-live="polite"></div>
+
+        <footer class="composer">
+          <label class="composer-label" for="input">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 10h10"/><path d="M7 14h6"/>
+            </svg>
+            글로 쓰기
+          </label>
+          <div class="input-row">
+            <div class="type-box">
+              <input id="input" class="input" type="text" autocomplete="off"
+                     placeholder="하고 싶은 말씀을 적어주세요" enterkeyhint="send" />
+            </div>
+            <button id="btn-send" class="btn-send">
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4.5 12 20 5l-4.2 14.5-4-6.2z"/><path d="M11.8 13.3 20 5"/>
+              </svg>
+              보내기
+            </button>
+          </div>
+        </footer>
+      </section>
+    </main>
+
+    <!-- ================= 오늘도 나를 돌보는 시간 ================= -->
+    <section class="daily-tools">
+      <div class="section-heading">
+        <h2>오늘도 나를 돌보는 시간</h2>
+        <span>필요한 활동을 골라보세요</span>
+      </div>
+
+      <div class="suggest tool-grid" id="suggest" aria-label="오늘의 활동">
+        <button id="btn-mood" class="btn-care tool-card" type="button">
+          <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5"/><path d="M9 10.5h.01M15 10.5h.01"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/>
           </svg>
-          다시 듣기
+          <strong>오늘 몸 상태</strong>
+          <span>기분과 아픈 곳 기록</span>
+        </button>
+        <button id="btn-meds" class="btn-care tool-card" type="button">
+          <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8"/><path d="M12 7.8v4.4l2.9 1.8"/>
+          </svg>
+          <strong>약 챙기기</strong>
+          <span>드시는 때 등록</span>
+        </button>
+        <button id="btn-goal" class="btn-care tool-card" type="button">
+          <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          <strong>나의 작은 목표</strong>
+          <span>하루 한 걸음씩</span>
+        </button>
+        <button id="btn-trend" class="btn-care tool-card" type="button">
+          <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 20h16"/><path d="M7 17v-4.5"/><path d="M12 17V7.5"/><path d="M17 17v-7"/>
+          </svg>
+          <strong>마음의 변화</strong>
+          <span>최근 열나흘 돌아보기</span>
+        </button>
+        <button id="btn-report" class="btn-care tool-card" type="button">
+          <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="5" y="4" width="14" height="16" rx="2.5"/><path d="M8.5 9h7"/><path d="M8.5 13h7"/><path d="M8.5 17h4"/>
+          </svg>
+          <strong>건강 기록</strong>
+          <span>오늘 기록 살펴보기</span>
+        </button>
+        <button id="btn-activity" class="btn-care tool-card" type="button">
+          <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 6.5c-1.6-2-5.5-1.6-5.5 1.6 0 2.2 2.2 3 2.2 5.4"/>
+            <path d="M12 6.5c1.6-2 5.5-1.6 5.5 1.6 0 2.2-2.2 3-2.2 5.4"/><path d="M9.5 17.5h5"/>
+          </svg>
+          <strong>함께 몸 움직이기</strong>
+          <span>오늘의 활동 고르기</span>
         </button>
       </div>
 
-      <div id="subtitle" class="subtitle" role="status" aria-live="polite">
-        안녕하세요. 오늘 하루는 어떠셨어요?
-      </div>
+      <p class="page-note">진단 · 치료 · 처방을 대신하지 않아요. 기록은 이 브라우저에 연결된 정보로 불러옵니다.</p>
     </section>
+  </div>
 
-    <section class="chat" aria-label="대화 내용">
-      <h2 class="chat-title">주고받은 이야기</h2>
-      <div id="log" class="log" role="log" aria-live="polite"></div>
-    </section>
-  </main>
-
-  <!-- ================= 하단 입력 ================= -->
-  <footer class="composer">
-    <div class="suggest" id="suggest" aria-label="자주 쓰는 것">
-      <!-- 기분과 오늘의 활동은 스스로 누르실 수 있게 큰 버튼으로 둔다.
-           약 드실 때가 되었거나 아프다고 하시면, 초롱이가 먼저 카드를 띄운다 -->
-      <button id="btn-mood" class="btn-care" type="button">
-        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="8.5"/><path d="M9 10.5h.01M15 10.5h.01"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/>
-        </svg>
-        오늘 기분
-      </button>
-      <button id="btn-activity" class="btn-care" type="button">
-        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 6.5c-1.6-2-5.5-1.6-5.5 1.6 0 2.2 2.2 3 2.2 5.4"/>
-          <path d="M12 6.5c1.6-2 5.5-1.6 5.5 1.6 0 2.2-2.2 3-2.2 5.4"/><path d="M9.5 17.5h5"/>
-        </svg>
-        오늘의 활동
-      </button>
-      <button id="btn-goal" class="btn-care" type="button">
-        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>
-        </svg>
-        오늘 목표
-      </button>
-      <button id="btn-report" class="btn-care" type="button">
-        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="5" y="4" width="14" height="16" rx="2.5"/><path d="M8.5 9h7"/><path d="M8.5 13h7"/><path d="M8.5 17h4"/>
-        </svg>
-        오늘 기록
-      </button>
-      <!-- 약 드시는 때 등록 · 최근 열나흘 기분. 설정 안에 있으면 못 찾으신다 -->
-      <button id="btn-meds" class="btn-care" type="button">
-        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="8"/><path d="M12 7.8v4.4l2.9 1.8"/>
-        </svg>
-        약 알림
-      </button>
-      <button id="btn-trend" class="btn-care" type="button">
-        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 20h16"/><path d="M7 17v-4.5"/><path d="M12 17V7.5"/><path d="M17 17v-7"/>
-        </svg>
-        기분 변화
-      </button>
-    </div>
-
-    <div class="input-row">
-      <button id="btn-mic" class="mic" type="button" aria-label="말하기 버튼">
-        <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/>
-        </svg>
-        <span class="mic-label" id="mic-label">눌러서 말하기</span>
-        <span class="mic-level" id="mic-level" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-      </button>
-
-      <div class="type-box">
-        <label class="sr-only" for="input">하고 싶은 말</label>
-        <input id="input" class="input" type="text" autocomplete="off"
-               placeholder="글로 쓰셔도 됩니다" enterkeyhint="send" />
-        <button id="btn-send" class="btn-send">보내기</button>
-      </div>
-    </div>
-  </footer>
-
-  <!-- ================= 설정 ================= -->
-  <!-- 글자 크기 · 천천히 대화 · 캐릭터 바꾸기. 자주 쓰지 않으니 안에 넣어 둔다 -->
-  <div id="settings" class="settings" hidden role="dialog" aria-modal="true" aria-label="설정">
+  <!-- ================= 화면 설정 ================= -->
+  <div id="settings" class="settings" hidden role="dialog" aria-modal="true" aria-label="화면 설정">
     <div class="settings-box">
-      <h2 class="settings-title">설정</h2>
+      <h2 class="settings-title">화면 설정</h2>
 
       <button id="btn-font" class="set-row" type="button">
         <span class="set-name">글자 크기</span>
-        <b id="font-level">크게</b>
+        <b id="font-level">기본</b>
       </button>
 
       <button id="btn-slow" class="set-row" type="button" aria-pressed="false">
@@ -271,8 +318,6 @@
   </div>
 
   <!-- ================= 약 알림 시간 ================= -->
-  <!-- 등록해 두면 드실 때가 지났는데 기록이 없을 때 초롱이가 대화 중에 한 번 여쭙니다.
-       따로 소리를 울리지는 않습니다 (lib/care-api.js /api/care/medications) -->
   <div id="meds" class="settings" hidden role="dialog" aria-modal="true" aria-label="약 알림 시간">
     <div class="settings-box">
       <h2 class="settings-title">약 알림 시간</h2>
@@ -298,7 +343,6 @@
   </div>
 
   <!-- ================= 최근 열나흘 기분 ================= -->
-  <!-- 오늘 기분을 여쭤본 날만 막대가 올라갑니다 (lib/care-score.js moodTrend) -->
   <div id="trend14" class="settings" hidden role="dialog" aria-modal="true" aria-label="최근 기분 변화">
     <div class="settings-box">
       <h2 class="settings-title">최근 열나흘 기분</h2>
@@ -310,6 +354,14 @@
       <button id="trend14-close" class="set-close" type="button">닫기</button>
     </div>
   </div>
+
+  <footer class="page-foot">
+    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 20v-6"/><path d="M12 14c0-3.9 2.7-7 6.9-7 0 3.9-2.7 7-6.9 7z"/>
+      <path d="M12 14c0-3.4-2.4-6.2-5.8-6.2 0 3.4 2.4 6.2 5.8 6.2z"/>
+    </svg>
+    초롱이 · 당신의 하루를 함께 돌봐요
+  </footer>
 
   <div id="toast" class="toast" role="alert" hidden></div>
 
