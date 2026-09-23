@@ -156,6 +156,8 @@
         <figure id="memory" class="memory" hidden>
           <img id="memory-photo" class="memory-photo" alt="">
           <figcaption id="memory-title" class="memory-title"></figcaption>
+          <!-- 사진 파일에 남은 찍은 날 · 찍은 곳 (믿을 만한 것만) -->
+          <p id="memory-meta" class="photo-facts" hidden></p>
           <div class="memory-acts">
             <button id="btn-next-photo" class="memory-btn" type="button">다른 사진</button>
             <button id="btn-close-photo" class="memory-btn" type="button">그만 보기</button>
@@ -171,29 +173,6 @@
             <button id="btn-keep-yes" class="keep-btn keep-yes" type="button">네, 남겨 주세요</button>
             <button id="btn-keep-no" class="keep-btn" type="button">아니요</button>
           </div>
-        </div>
-
-        <!-- 대화를 마친 뒤 — 지금 기분을 표정으로 여쭙는다 -->
-        <div id="feel" class="feel" hidden role="group" aria-labelledby="feel-q">
-          <p id="feel-q" class="feel-q">지금 기분이 어떠신지 얼굴 표정을 하나 눌러 주세요.</p>
-          <div class="feel-acts">
-            <button class="feel-btn" type="button" data-feel="COMFORTABLE"
-                    aria-label="편안해요, 좋아요">
-              <span class="feel-face" aria-hidden="true">😊</span>
-              <b>편안해요</b><span class="feel-sub">좋아요</span>
-            </button>
-            <button class="feel-btn" type="button" data-feel="NEUTRAL"
-                    aria-label="보통이에요, 괜찮아요">
-              <span class="feel-face" aria-hidden="true">😐</span>
-              <b>보통이에요</b><span class="feel-sub">괜찮아요</span>
-            </button>
-            <button class="feel-btn" type="button" data-feel="DISCOMFORT"
-                    aria-label="피곤해요, 불편해요">
-              <span class="feel-face" aria-hidden="true">😞</span>
-              <b>피곤해요</b><span class="feel-sub">불편해요</span>
-            </button>
-          </div>
-          <button id="feel-skip" class="care-later" type="button">그냥 마칠게요</button>
         </div>
 
         <!-- 사진을 올리시면 얼마나 소중한 사진인지 여쭙는다 -->
@@ -268,6 +247,32 @@
         <p class="demo-note">사진을 보며 떠오르는 이야기를 편하게 들려주세요.</p>
 
         <div id="log" class="log messages" role="log" aria-live="polite"></div>
+
+        <!-- 대화를 마친 뒤 — 지금 기분을 표정으로 여쭙는다.
+             마지막 말 바로 아래, 보고 계신 자리에 띄운다 -->
+        <div id="feel" class="feel" hidden role="group" aria-labelledby="feel-q">
+          <p id="feel-q" class="feel-q">지금 기분이 어떠신지 얼굴 표정을 하나 눌러 주세요.</p>
+          <div class="feel-acts">
+            <button class="feel-btn" type="button" data-feel="COMFORTABLE"
+                    aria-label="편안해요, 좋아요">
+              <span class="feel-face" aria-hidden="true">😊</span>
+              <b>편안해요</b><span class="feel-sub">좋아요</span>
+            </button>
+            <button class="feel-btn" type="button" data-feel="NEUTRAL"
+                    aria-label="보통이에요, 괜찮아요">
+              <span class="feel-face" aria-hidden="true">😐</span>
+              <b>보통이에요</b><span class="feel-sub">괜찮아요</span>
+            </button>
+            <button class="feel-btn" type="button" data-feel="DISCOMFORT"
+                    aria-label="피곤해요, 불편해요">
+              <span class="feel-face" aria-hidden="true">😞</span>
+              <b>피곤해요</b><span class="feel-sub">불편해요</span>
+            </button>
+          </div>
+          <button id="feel-skip" class="care-later" type="button">그냥 마칠게요</button>
+        </div>
+
+
 
         <div class="quick-replies" id="suggest" aria-label="자주 쓰는 것">
           <button id="btn-recall" class="btn-recall" type="button" aria-pressed="false">

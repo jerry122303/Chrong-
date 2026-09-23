@@ -2095,3 +2095,42 @@ body {
   .companion .memory-photo { height: 240px; }
   .companion.with-memory .avatar { height: 110px; }
 }
+
+/* =================== 찍은 날 · 찍은 곳 =================== */
+.photo-facts, .rate-meta {
+  display: flex; flex-direction: column; gap: 4px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--brand-soft);
+  color: var(--ink);
+  font-size: .95rem;
+  line-height: 1.5;
+  text-align: left;
+}
+.photo-facts { width: 100%; }
+.photo-facts[hidden], .rate-meta[hidden] { display: none; }
+.fact { display: flex; gap: 12px; }
+.fact b { flex: 0 0 auto; min-width: 4.2em; color: var(--brand); font-weight: 700; }
+.fact-note { color: var(--ink-2); font-size: .88rem; }
+
+/* =================== 마친 뒤 표정 셋 — 대화 카드 안 =================== */
+.conversation .feel {
+  flex: 0 0 auto;
+  margin: 0 22px 14px;
+  padding: 16px;
+  border: 1px solid var(--brand-line);
+  border-radius: 14px;
+  background: var(--card);
+}
+.conversation .feel-q { font-size: 1.05rem; }
+.conversation .feel-btn {
+  min-height: 96px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.conversation .feel-btn:hover { border-color: var(--brand); background: var(--brand-soft); }
+.conversation .feel-face { font-size: 2rem; }
+.conversation .feel-btn b { font-size: .95rem; }
+.conversation .feel-sub { font-size: .82rem; }

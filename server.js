@@ -1403,6 +1403,25 @@ function locateLater(memoryId) {
   })().catch((err) => console.warn('[geocode]', err.message));
 }
 
+/**
+ * 찍은 곳을 이름으로 — 사진을 고르신 직후 별점 위에 보여 드리려고 화면이 부른다.
+ *
+ * 좌표는 여기 남기지 않고 이름만 돌려준다. 바깥에 물을 때는 소수 셋째 자리(약 110미터)까지만
+ * 보낸다 (lib/geocode.js). 같은 곳은 한 번 찾아 두므로 업로드 뒤 뒤에서 찾을 때 다시 묻지 않는다.
+ * GEOCODE=false 면 좌표가 서버 밖으로 나가지 않고 빈 이름을 돌려준다.
+ */
+app.post('/api/place', async (req, res) => {
+  const lat = Number(req.body?.lat);
+  const lon = Number(req.body?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return fail(res, 400, '위치를 알아보지 못했어요.');
+  try {
+    const name = GEOCODE_ON ? await placeName({ lat, lon }, { timeoutMs: 4000 }) : null;
+    res.json({ name: name || '' });
+  } catch {
+    res.json({ name: '' });   // 못 찾아도 사진은 그대로 올라간다
+  }
+});
+
 /** 이 어르신의 기억 목록 */
 app.get('/api/memories', async (req, res) => {
   try {

@@ -458,13 +458,29 @@ async function choose(file) {
     : (pickedExif.takenAt ? '찍은 날은 없고 파일을 고친 때만 남아 있어요' : '찍은 날 정보 없음');
   const bits = [
     day,
-    pickedExif.gps ? '찍은 곳 <b>위치 정보 있음</b> (동네 이름으로 바꿔 저장해요)' : '위치 정보 없음',
+    pickedExif.gps ? '찍은 곳 <b id="autoPlace">찾는 중…</b>' : '위치 정보 없음',
   ];
   $('auto').innerHTML = '사진 파일에서 읽은 정보 — ' + bits.join(' · ')
     + (!pickedExif.takenAt && !pickedExif.gps
       ? '<br>이 사진에는 촬영 정보가 남아 있지 않아요. 아래에 찍은 해와 장소를 적어 두시면 회상 단서로 씁니다.'
       : '');
   $('auto').hidden = false;
+
+  /* 좌표를 동네 이름으로. 그 사이 다른 사진을 고르셨으면 옛 결과는 붙이지 않는다 */
+  if (pickedExif.gps) {
+    const asked = pickedExif;
+    fetch('/api/place', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: asked.gps.lat, lon: asked.gps.lon }),
+    })
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({}))
+      .then((out) => {
+        if (pickedExif !== asked) return;
+        const el = $('autoPlace');
+        if (el) el.textContent = out.name || '위치 정보 있음 (이름은 저장할 때 다시 찾아요)';
+      });
+  }
 }
 
 $('file').addEventListener('change', (e) => choose(e.target.files[0]));

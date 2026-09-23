@@ -30,6 +30,7 @@ const ui = {
   stage: document.querySelector('.stage'),
   recall: $('btn-recall'), recallLabel: $('recall-label'),
   memory: $('memory'), memoryPhoto: $('memory-photo'), memoryTitle: $('memory-title'),
+  memoryMeta: $('memory-meta'),
   nextPhoto: $('btn-next-photo'), closePhoto: $('btn-close-photo'),
   keep: $('keep'), keepList: $('keep-list'),
   keepYes: $('btn-keep-yes'), keepNo: $('btn-keep-no'),
@@ -254,6 +255,7 @@ async function applyReply(data) {
      말로만 "다른 사진 볼게요" 하고 화면이 그대로면 어르신이 헷갈리신다. */
   if (state.memory && data.photoAction === 'next') nextAfterSpeech = true;
   if (state.memory && data.photoAction === 'stop') stopAfterSpeech = true;
+  if (!state.memory && data.photoAction === 'stop' && BOT === 'recall') feelAfterSpeech = true;
   state.lastReply = { text: data.reply, emotion: data.emotion, mode: data.mode };
 
   addMessage('bot', data.reply);
@@ -444,11 +446,14 @@ function afterSpeaking() {
   const stop = stopAfterSpeech;
   const close = closingAfterSpeech;
   const next = nextAfterSpeech;
+  const feel = feelAfterSpeech;
+  feelAfterSpeech = false;
   stopAfterSpeech = false;
   closingAfterSpeech = false;
   nextAfterSpeech = false;
 
   if (stop) { stopMemoryTalk(); return; }
+  if (feel) { showFeel(); return; }
   if (close) { wrapUpMemoryTalk(); return; }   // 이미 여쭈었으므로 인사를 덧붙이지 않는다
   if (next) nextRecallPhoto().then((moved) => { if (!moved) sayNoMorePhotos(); });
 }
@@ -887,6 +892,13 @@ function showMemory(memory, { preview = false } = {}) {
     // 사진이 없는 이야깃거리는 빈 칸 대신 주제를 크게 보여 준다
     ui.memory.classList.toggle('no-photo', !hasPhoto);
     ui.memoryTitle.textContent = memory.title || '';
+
+    /* 사진 파일에 남은 찍은 날 · 찍은 곳. 있는 것만, 믿을 만한 것만 보여 드린다 */
+    const meta = memory.meta || {};
+    paintFacts(ui.memoryMeta, photoFacts({
+      takenAt: meta.taken_at, confidence: meta.date_confidence,
+      place: meta.location_name, hasGps: meta.has_gps,
+    }));
   }
 }
 
@@ -1041,6 +1053,8 @@ let closingAfterSpeech = false;
 /* 어르신이 말로 "다른 사진 보자" · "그만 보자" 하셨으면, 초롱이 말이 끝난 뒤 화면이 따른다 */
 let nextAfterSpeech = false;
 let stopAfterSpeech = false;
+/* 사진 없이 이야기하다 마치셨을 때 — 말이 끝나면 표정 셋을 띄운다 */
+let feelAfterSpeech = false;
 async function wrapUpMemoryTalk({ farewell = '' } = {}) {
   if (wrappingUp || !state.memory) return;
   wrappingUp = true;
@@ -1154,6 +1168,8 @@ async function attachPhoto(file) {
   try {
     /* 줄이면 캔버스를 거치며 찍은 날과 위치가 떨어져 나간다. 원본에서 먼저 읽는다. */
     const exif = await readExifFromFile(file);
+    /* 찍은 곳 이름은 올리는 동안 함께 찾는다 (기다리는 시간을 늘리지 않게) */
+    const placeP = placeFor(exif.gps);
     const small = await shrinkPhoto(file);
 
     /* 어떤 사진은 날짜가 나오고 어떤 사진은 안 나온다. 무엇을 읽었는지 남겨 둔다 */
@@ -1186,7 +1202,7 @@ async function attachPhoto(file) {
 
     // 이제부터는 서버가 가진 사진을 본다 (임시 주소를 곧 버리기 때문)
     bubble.querySelector('.msg-photo').src = '/api/memories/' + out.memory.memory_id + '/photo';
-    uploaded = { memory: out.memory, exif };
+    uploaded = { memory: out.memory, exif, place: await placeP };
   } catch (err) {
     bubble.remove();
     toast(err.message || '사진을 올리지 못했어요.');
@@ -1199,7 +1215,7 @@ async function attachPhoto(file) {
     ui.filePhoto.value = '';   // 같은 사진을 다시 골라도 열리게
   }
 
-  if (uploaded) askImportance(uploaded.memory, uploaded.exif);
+  if (uploaded) askImportance(uploaded.memory, uploaded.exif, uploaded.place);
 }
 
 /* --- 사진을 올리시면 얼마나 소중한 사진인지 여쭙는다 -----------------
@@ -1216,6 +1232,56 @@ const STAR_WORD = { 1: '평범한', 2: '소중한', 3: '매우 소중한' };
  * 날짜와 위치가 지워져 있다. 세 가지 경우를 나눠 알려 드리고, 없을 때는
  * 보호자 화면에서 적어 두실 수 있다고 안내한다 (지어내지 않는다).
  */
+/**
+ * 찍은 날 · 찍은 곳 두 줄.
+ * 파일을 고친 때만 남은 날짜는 찍은 날로 여기지 않는다 (옛 사진을 다시 찍으면 오늘이 된다).
+ * full — 올리실 때처럼 무엇을 읽었는지 다 보여 드릴지. 아니면 있는 것만 보여 드린다.
+ */
+function photoFacts({ takenAt = null, confidence = null, place = '', hasGps = false } = {}, { full = false } = {}) {
+  const day = takenAt && confidence !== 'LOW' ? formatTakenDate(takenAt) : '';
+  const rows = [];
+  if (day) rows.push(['찍은 날', day]);
+  else if (full) rows.push(['찍은 날', takenAt ? '정확하지 않아요 (파일을 고친 날만 남아 있어요)' : '정보가 없어요']);
+  if (place) rows.push(['찍은 곳', place]);
+  else if (full) rows.push(['찍은 곳', hasGps ? '위치는 남아 있지만 이름을 찾지 못했어요' : '정보가 없어요']);
+  return { rows, any: Boolean(day || place) };
+}
+
+/** 두 줄을 칸에 그린다. 그릴 것이 없으면 칸을 감춘다 */
+function paintFacts(el, facts, note = '') {
+  if (!el) return;
+  el.innerHTML = '';
+  for (const [label, value] of facts.rows) {
+    const row = document.createElement('span');
+    row.className = 'fact';
+    const b = document.createElement('b');
+    b.textContent = label;
+    row.append(b, document.createTextNode(value));
+    el.appendChild(row);
+  }
+  if (note) {
+    const n = document.createElement('span');
+    n.className = 'fact-note';
+    n.textContent = note;
+    el.appendChild(n);
+  }
+  el.hidden = facts.rows.length === 0 && !note;
+}
+
+/** 좌표를 동네 이름으로 (서버가 찾는다. 못 찾으면 빈 이름) */
+async function placeFor(gps) {
+  if (!gps) return '';
+  try {
+    const r = await fetch('/api/place', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: gps.lat, lon: gps.lon }),
+    });
+    return r.ok ? ((await r.json()).name || '') : '';
+  } catch {
+    return '';
+  }
+}
+
 function describeMeta(exif) {
   /* 파일을 고친 때만 남은 사진은 찍은 날로 여기지 않는다 */
   const day = exif?.takenAt && exif.dateConfidence !== 'LOW' ? formatTakenDate(exif.takenAt) : '';
@@ -1241,14 +1307,19 @@ function revealRate() {
   }
 }
 
-function askImportance(memory, exif) {
+function askImportance(memory, exif, place = '') {
   rating = memory;
   showMemory(memory, { preview: true });   // 무엇을 고르시는지 보이게 잠깐 크게 띄운다 (회상 대화는 아니다)
   ui.memory.classList.add('rating');
   ui.stage.classList.add('rating');
-  const meta = describeMeta(exif);
-  ui.rateMeta.textContent = meta;
-  ui.rateMeta.hidden = !meta;
+  /* 별점 위에 사진 파일에서 읽은 찍은 날 · 찍은 곳을 보여 드린다 */
+  const facts = photoFacts({
+    takenAt: exif?.takenAt, confidence: exif?.dateConfidence,
+    place, hasGps: Boolean(exif?.gps),
+  }, { full: true });
+  paintFacts(ui.rateMeta, facts,
+    facts.any ? '' : '보호자 화면에서 찍은 해와 장소를 적어 두실 수 있어요.');
+  if (ui.memoryMeta) ui.memoryMeta.hidden = true;   // 고르시는 동안에는 한 곳에만
   ui.rate.hidden = false;
   revealRate();
 
@@ -1525,6 +1596,8 @@ function showFeel() {
   hideCare();
   ui.feel.hidden = false;
   setStatus('idle', '표정을 하나 눌러 주세요');
+  /* 페이지가 길어 화면 밖에 뜨면 못 보신다. 보이는 자리로 데려온다 */
+  ui.feel.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function hideFeel() { if (ui.feel) ui.feel.hidden = true; }
