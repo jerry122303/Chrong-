@@ -106,6 +106,15 @@
         <span class="ctrl-label">소리<b id="sound-state">켜짐</b></span>
       </button>
 
+      <!-- 켜 두면 오늘 할 인지 활동을 하루 한 번 먼저 권합니다 -->
+      <button id="btn-cogmode" class="ctrl" type="button" aria-pressed="true">
+        <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4.5a5 5 0 0 1 3 9v1.8H9V13.5a5 5 0 0 1 3-9z"/>
+          <path d="M10 18.2h4"/><path d="M10.7 20.2h2.6"/>
+        </svg>
+        <span class="ctrl-label">인지케어<b id="cogmode-state">켜짐</b></span>
+      </button>
+
       <!-- 글자 크기 · 천천히 대화 · 캐릭터 바꾸기는 설정 안에 모아 둔다 -->
       <button id="btn-settings" class="ctrl" type="button">
         <svg class="ctrl-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -203,6 +212,19 @@
         </svg>
         오늘 기록
       </button>
+      <!-- 약 드시는 때 등록 · 최근 열나흘 기분. 설정 안에 있으면 못 찾으신다 -->
+      <button id="btn-meds" class="btn-care" type="button">
+        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8"/><path d="M12 7.8v4.4l2.9 1.8"/>
+        </svg>
+        약 알림
+      </button>
+      <button id="btn-trend" class="btn-care" type="button">
+        <svg class="care-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 20h16"/><path d="M7 17v-4.5"/><path d="M12 17V7.5"/><path d="M17 17v-7"/>
+        </svg>
+        기분 변화
+      </button>
     </div>
 
     <div class="input-row">
@@ -242,22 +264,6 @@
       <button id="btn-swap" class="set-row" type="button">
         <span class="set-name">캐릭터 바꾸기</span>
         <b>고르기</b>
-      </button>
-
-      <!-- 약 알림 시간 (자주 쓰지 않으니 설정 안에 둔다) -->
-      <button id="btn-meds" class="set-row" type="button">
-        <span class="set-name">약 알림 시간</span>
-        <b>등록</b>
-      </button>
-
-      <button id="btn-trend" class="set-row" type="button">
-        <span class="set-name">최근 기분 변화</span>
-        <b>보기</b>
-      </button>
-      <!-- 인지케어 모드 — 켜 두면 초롱이가 오늘의 인지 활동을 하루 한 번 먼저 권합니다 -->
-      <button id="btn-cogmode" class="set-row" type="button" aria-pressed="true">
-        <span class="set-name">인지케어 모드</span>
-        <b id="cogmode-state">켜짐</b>
       </button>
 
       <button id="btn-settings-close" class="set-close" type="button">닫기</button>
